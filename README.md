@@ -4,7 +4,7 @@
 
 [![Checks](https://github.com/HappyAny/cocos-web-translator/actions/workflows/ci.yml/badge.svg)](https://github.com/HappyAny/cocos-web-translator/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/HappyAny/cocos-web-translator)](https://github.com/HappyAny/cocos-web-translator/releases/latest)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
 支持 Cocos Web 文字翻译的 Chrome / Edge 浏览器扩展。在可访问的文字组件和兼容剧情播放器中显示译文，支持自选翻译服务、预翻译、对白参考与个人修订。
 
@@ -74,4 +74,6 @@ update.cmd/.ps1     Windows 同目录更新工具
 
 ## License
 
-[MIT](LICENSE)。
+Copyright (C) 2026 HappyAny。
+
+本项目采用 [GNU GPL 第 3 版](LICENSE)（`GPL-3.0-only`）。你可以遵循该许可证使用、修改和再分发本项目。软件不提供任何担保。Release 插件包包含完整许可证与可编辑的扩展源码。

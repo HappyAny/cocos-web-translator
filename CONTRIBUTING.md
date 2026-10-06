@@ -11,3 +11,5 @@ User-facing messages belong in `i18n.mjs` with both Chinese and English text. Ke
 Public release files are explicitly listed in `scripts/files.mjs`. If a runtime dependency is added, list it there and extend structural checks. Private or generated data must never enter the release package.
 
 Tagged releases trigger the release workflow. The workflow attaches the installable browser extension ZIP, SHA-256 checksum, and public file manifest to GitHub Releases. Keep the versions in `package.json`, `extension/manifest.json`, and the runtime consistent.
+
+Contributions are distributed under the project's [GNU GPL version 3 only](LICENSE) (`GPL-3.0-only`) license. Preserve copyright and license notices when changing or redistributing files.

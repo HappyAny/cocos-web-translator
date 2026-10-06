@@ -1,10 +1,10 @@
 {
   "name": "cocos-web-translator",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": true,
   "description": "A browser extension for translating Cocos Web text.",
   "type": "module",
-  "license": "MIT",
+  "license": "GPL-3.0-only",
   "engines": {"node": ">=22"},
   "scripts": {
     "check": "node scripts/check.mjs",

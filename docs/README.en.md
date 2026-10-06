@@ -44,4 +44,8 @@ Node.js 22+: `npm ci`, `npm run check`, `npm test`, `npm run build`.
 
 Build outputs in `dist/` include the extension ZIP, SHA-256 checksums, and a public file manifest. Windows updater checks also require Python 3 and PowerShell. CI validates Windows and Linux; tagged releases are packaged automatically.
 
-See [architecture](architecture.md), [privacy](privacy.md), and [contributing](../CONTRIBUTING.md). Licensed under [MIT](../LICENSE).
+See [architecture](architecture.md), [privacy](privacy.md), and [contributing](../CONTRIBUTING.md).
+
+## License
+
+Copyright (C) 2026 HappyAny. This project is free software licensed under the [GNU General Public License, version 3 only](../LICENSE) (`GPL-3.0-only`). You may use, modify, and redistribute it under those terms. It comes without any warranty. Release packages include the full license and editable extension source.

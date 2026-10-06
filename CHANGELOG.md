@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.1
+
+- Adopt GNU GPL version 3 only (`GPL-3.0-only`).
+- Include the complete GPL license and updated copyright notices in the project and extension package.
+
 ## 0.6.0
 
 - Standalone Cocos Web browser extension with Chinese / English interface.

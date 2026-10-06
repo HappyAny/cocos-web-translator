@@ -12,4 +12,6 @@ Supports accessible Cocos Label/RichText components and compatible dialogue inte
 
 Personal translations use `format: cocos-translations`, `version: 1`, and a target language field. Export, edit, and import JSON, or edit a single line in settings. Compatible older exports can be imported. Clearing automatic cache keeps personal edits.
 
-No client assets, personal data, API keys, or development dependencies are included in the package. License: MIT (see outer LICENSE).
+No client assets, personal data, API keys, or development dependencies are included in the package.
+
+Copyright (C) 2026 HappyAny. Licensed under the GNU General Public License, version 3 only (`GPL-3.0-only`); see the outer LICENSE file. You may use, modify, and redistribute this software under those terms. It comes without any warranty. The package contains the editable extension source; the full project source is available from the repository linked above.
