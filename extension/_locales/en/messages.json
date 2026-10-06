@@ -1,0 +1,4 @@
+{
+  "extensionName": { "message": "Cocos Web Translator" },
+  "extensionDescription": { "message": "Translate Cocos Web dialogue and interface text, with multiple target languages, pretranslation, dialogue context, and personal edits." }
+}

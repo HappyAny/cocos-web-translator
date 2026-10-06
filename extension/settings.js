@@ -1,0 +1,100 @@
+import { initializePersonalEditor } from './personal-editor.mjs';
+import { DEFAULTS, TARGET_LANGUAGES, validateSettings, buildModelBody, apiPermissionPattern } from './core.mjs';
+import { t, setLanguage, getLanguage, applyLanguage, localizeError } from './i18n.mjs';
+const $ = id => document.getElementById(id);
+const extension = true;
+let currentSettings, lastMessage, testTranslation;
+function message(key, values = {}, error = false) { lastMessage = { key, values, error }; renderMessage(); }
+function renderMessage() { if (lastMessage) { $('status').textContent = t(lastMessage.key, lastMessage.values); $('status').className = 'status' + (lastMessage.error ? ' error' : ''); } }
+function messageError(error) { $('status').textContent = localizeError(error.message); $('status').className = 'status error'; lastMessage = undefined; }
+async function request(action, body) {
+  if (extension && currentSettings && ['exportTranslations', 'importTranslations', 'getPersonalTranslation', 'setPersonalTranslation', 'removePersonalTranslation'].includes(action) && $('targetLanguage').value !== currentSettings.targetLanguage) throw new Error('请先保存目标语言设置，再操作个人译文');
+  if (extension) {
+    const response = await chrome.runtime.sendMessage({ action, payload: body });
+    if (!response?.ok) throw new Error(response?.error || '扩展后台没有响应');
+    return response.data;
+  }
+  throw new Error('扩展后台没有响应');
+}
+function parseBody() { try { return JSON.parse($('extraBody').value.trim() || '{}'); } catch { throw new Error('附加 Body JSON 格式错误，请检查逗号、引号和括号'); } }
+function values() {
+  return validateSettings({ provider: $('provider').value, apiBase: $('apiBase').value.trim(), model: $('model').value.trim(),
+    maxFreeCharacters: Number($('maxFreeCharacters').value), storyEnabled: $('storyEnabled').checked,
+    uiEnabled: $('uiEnabled').checked, systemFont: $('systemFont').checked, extraBody: parseBody(),
+    disableThinking: $('disableThinking').checked, thinkingPreset: $('thinkingPreset').value,
+    requestTimeoutSeconds: Number($('requestTimeoutSeconds').value), lookahead: Number($('lookahead').value),
+    targetLanguage: $('targetLanguage').value, interfaceLanguage: $('interfaceLanguage').value,
+    historyEnabled: $('historyEnabled').checked, historyMaxEntries: Number($('historyMaxEntries').value) });
+}
+function preview() { try { $('bodyPreview').textContent = JSON.stringify(buildModelBody(values(), '「お父さん、大丈夫ですか？」'), null, 2); } catch (error) { $('bodyPreview').textContent = localizeError(error.message); } }
+function fields() {
+  const model = $('provider').value === 'openai';
+  $('modelFields').hidden = !model; $('budgetField').hidden = model; $('model').required = model;
+  $('thinkingFields').hidden = !$('disableThinking').checked; $('probe').hidden = !model;
+  $('historyFields').hidden = !$('historyEnabled').checked;
+  $('providerHint').textContent = t(model ? 'modelHint' : 'freeHint'); preview();
+}
+function targetOptions() {
+  const selected = $('targetLanguage').value || DEFAULTS.targetLanguage;
+  $('targetLanguage').replaceChildren(...Object.entries(TARGET_LANGUAGES).map(([code, language]) => {
+    const option = document.createElement('option'); option.value = code; option.textContent = getLanguage() === 'en' ? language.english : language.native; return option;
+  })); $('targetLanguage').value = selected;
+}
+function renderSummary() {
+  if (currentSettings) {
+    const data = currentSettings, storage = t(extension ? (data.rememberApiKey ? 'persistentKey' : 'sessionKey') : 'localKey');
+    $('keyHint').textContent = data.hasApiKey ? t('keySet', { storage }) : t('keyNone');
+    $('budgetText').textContent = t('usage', { used: data.usedFreeCharacters, limit: data.maxFreeCharacters, remaining: Math.max(0, data.maxFreeCharacters - data.usedFreeCharacters) });
+    $('budgetBar').style.width = Math.min(100, data.usedFreeCharacters / Math.max(1, data.maxFreeCharacters) * 100) + '%';
+    $('connection').textContent = t(extension ? 'connectedExtension' : 'connectedLocal');
+  }
+  if (extension) $('versionInfo').textContent = t('updateVersion', { version: chrome.runtime.getManifest().version });
+  if (testTranslation) $('testResult').textContent = t('testText', testTranslation);
+  renderMessage();
+}
+function fill(data) {
+  const priorTarget = currentSettings?.targetLanguage; currentSettings = { ...DEFAULTS, ...data };
+  for (const key of ['provider', 'apiBase', 'model', 'maxFreeCharacters', 'thinkingPreset', 'requestTimeoutSeconds', 'lookahead', 'targetLanguage', 'interfaceLanguage', 'historyMaxEntries']) $(key).value = currentSettings[key];
+  for (const key of ['storyEnabled', 'uiEnabled', 'systemFont', 'disableThinking', 'historyEnabled']) $(key).checked = !!currentSettings[key];
+  $('extraBody').value = JSON.stringify(currentSettings.extraBody || {}, null, 2);
+  $('apiKey').value = ''; $('clearApiKey').checked = false; $('rememberApiKey').checked = !!data.rememberApiKey;
+  setLanguage(currentSettings.interfaceLanguage); targetOptions(); renderSummary(); fields();
+  if (priorTarget && priorTarget !== currentSettings.targetLanguage) { $('personalTranslation').value = ''; $('personalStatus').textContent = ''; }
+}
+async function save() {
+  const payload = { ...values(), apiKey: $('apiKey').value, clearApiKey: $('clearApiKey').checked, rememberApiKey: $('rememberApiKey').checked };
+  if (extension && payload.provider === 'openai') {
+    const granted = await chrome.permissions.request({ origins: [apiPermissionPattern(payload.apiBase)] });
+    if (!granted) throw new Error('需要允许扩展访问所填写的 API 地址，才能保存并翻译');
+  }
+  const data = await request('setSettings', payload); fill(data); await refreshCacheInfo(); return data;
+}
+for (const key of ['provider', 'disableThinking', 'thinkingPreset', 'historyEnabled', 'targetLanguage']) $(key).addEventListener('change', fields);
+for (const key of ['extraBody', 'model', 'apiBase']) $(key).addEventListener('input', preview);
+$('interfaceLanguage').addEventListener('change', () => { setLanguage($('interfaceLanguage').value); targetOptions(); renderSummary(); fields(); });
+$('formatBody').addEventListener('click', () => { try { $('extraBody').value = JSON.stringify(parseBody(), null, 2); preview(); message('jsonFormatted'); } catch (error) { messageError(error); } });
+$('settingsForm').addEventListener('submit', async event => { event.preventDefault(); $('save').disabled = true;
+  try { await save(); message('saved'); } catch (error) { messageError(error); } finally { $('save').disabled = false; }
+});
+$('test').addEventListener('click', async () => { $('test').disabled = true; $('testResult').textContent = ''; testTranslation = undefined;
+  try {
+    await save(); message('testing'); const result = await request('test', {}), item = result.items[0];
+    if (item.error) { message('testFailure', { code: item.error, message: localizeError(item.errorMessage || '服务请求失败'), elapsed: result.elapsedMs }, true); return; }
+    testTranslation = { original: '「お父さん、大丈夫ですか？」', translation: item.text };
+    fill(await request('getSettings')); await refreshCacheInfo(); message('testSuccess', { elapsed: result.elapsedMs });
+  } catch (error) { messageError(error); } finally { $('test').disabled = false; }
+});
+$('probe').addEventListener('click', async () => { $('probe').disabled = true;
+  try { await save(); message('probing'); const result = await request('probe', {}); message('probeResult', { message: (result.error ? '[' + result.error + '] ' : '') + localizeError(result.message), elapsed: result.elapsedMs }, !result.reachable); }
+  catch (error) { messageError(error); } finally { $('probe').disabled = false; }
+});
+$('clearCache').addEventListener('click', async () => { $('clearCache').disabled = true;
+  try { await request('clearCache', {}); message('cacheCleared'); await refreshCacheInfo(); } catch (error) { messageError(error); } finally { $('clearCache').disabled = false; }
+});
+$('reloadExtension').addEventListener('click', () => chrome.runtime.reload());
+const refreshCacheInfo = initializePersonalEditor(request, extension);
+for (const key of ['rememberKeyRow', 'cacheRow', 'personalCard', 'updateCard', 'extendedSettings', 'historySettings']) $(key).hidden = !extension;
+applyLanguage(); targetOptions();
+request('getSettings').then(async data => { fill(data); try { await refreshCacheInfo(); } catch (error) { $('personalStatus').textContent = t('cacheFailure', { message: localizeError(error.message) }); } }).catch(error => {
+  message('connectionFailure', { message: localizeError(error.message) }, true); $('connection').textContent = t('disconnected');
+});

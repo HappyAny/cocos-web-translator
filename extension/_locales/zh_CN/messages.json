@@ -1,0 +1,8 @@
+{
+  "extensionName": {
+    "message": "Cocos翻译机"
+  },
+  "extensionDescription": {
+    "message": "翻译 Cocos Web 文字，支持多语言、预翻译、对白历史参考和个人修订。"
+  }
+}
