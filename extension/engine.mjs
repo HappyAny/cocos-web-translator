@@ -60,8 +60,21 @@ export class TranslationEngine {
   }
   cancelPageRequests() { this.translationEpoch++; for (const controller of this.pageRequests) controller.abort(); }
   async applySharedPreferences(preferences) {
-    await this.ready; const wasPaused = this.settings.paused; this.settings = validateSettings({ ...this.settings, ...preferences });
-    if (this.settings.paused && !wasPaused) this.cancelPageRequests();
+    return this.applySharedConfiguration(preferences);
+  }
+  async applySharedConfiguration(preferences, credentials = null) {
+    await this.ready;
+    return this.serial(async () => {
+      const settings = validateSettings({ ...this.settings, ...preferences });
+      const apiKey = credentials ? credentials.apiKey : this.apiKey;
+      if (this.identity(settings).encoded !== this.identity(this.settings).encoded || settings.requestTimeoutSeconds !== this.settings.requestTimeoutSeconds || apiKey !== this.apiKey) {
+        this.providerRevision++; this.cancelPageRequests();
+      } else if (settings.paused && !this.settings.paused) this.cancelPageRequests();
+      this.settings = settings; this.apiKey = apiKey;
+      if (credentials) this.rememberApiKey = credentials.rememberApiKey;
+      this.revision++;
+      await this.storage.local.set({ settings, revision: this.revision, providerRevision: this.providerRevision });
+    });
   }
   diagnostics() { return { hashes: { ...this.hashStats }, keyEntries: keyHashes.entries.size, keyBytes: keyHashes.bytes }; }
   async publicSettings(full = false) {

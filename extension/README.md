@@ -1,14 +1,14 @@
 # Cocos Web Translator · Cocos翻译机
 
-Load this folder as an unpacked Chrome / Edge extension. Create a profile in settings and configure its provider, target language, prompt, pretranslation, and dialogue context. Open a Cocos Web page, select the profile in the popup, authorize the page and relevant embedded origins, and enable translation.
+Load this folder as an unpacked Chrome / Edge extension. Configure the shared provider, key, target language, pretranslation, and dialogue context once. Create a profile below and add an optional prompt. Open a Cocos Web page, select the profile in the popup, authorize the page and relevant embedded origins, and enable translation.
 
-在扩展管理页加载本文件夹。设置页新建并配置 Profile，在 Cocos Web 网页的小菜单选择运行 Profile，启用当前网页及需要的嵌入域名。
+在扩展管理页加载本文件夹。设置页上方配置共用翻译服务与语言，下方新建 Profile 并设置额外 Prompt。在 Cocos Web 网页的小菜单选择运行 Profile，启用当前网页及需要的嵌入域名。使用期间请保留本文件夹，开发者模式不会自动复制它；下载的 ZIP 可以删除。
 
 Click **Update extension** in the popup and drop the new Release ZIP. Select your original loaded extension folder on first use, allow read/write access, and update. The folder is remembered, public files are verified and backed up, and write failures trigger rollback. Reload the existing extension and refresh the page. Older installations can use the outer **update.html** or the standalone updater HTML from Releases. The Windows `update.cmd` is also available. Keep the original folder and extension installed to retain settings and cache.
 
 The popup also has **Pause translation / Resume translation**. Pause applies to every enabled page, remembers its state, and keeps the previous dialogue and interface switches. Explicit translation tests in settings remain available.
 
-Profile settings, credentials, caches, and personal edits are independent. The popup remembers the current page's selection by its top-level origin and path. Unknown pages require an explicit profile choice. Settings-page selection only changes the editing target. Existing data stays in the default profile. Additional prompts apply to model APIs; prompt changes use separate automatic cache keys, while personal edits take priority.
+All profiles share their provider, credentials, languages, pretranslation, context, fonts, and text switches. Each profile has its own additional prompt, cache, and personal edits. The popup remembers the current page's selection by its top-level origin and path. Unknown pages require an explicit profile choice. Settings-page selection only changes the editing target and retains unsaved shared fields. Old settings migrate from the previously edited profile; existing prompts, bindings, caches, and personal edits are retained. Additional prompts apply to model APIs; prompt changes use separate automatic cache keys, while personal edits take priority.
 
 Full documentation, source, and installable releases: [HappyAny/cocos-web-translator](https://github.com/HappyAny/cocos-web-translator).
 

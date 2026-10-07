@@ -21,7 +21,9 @@ const untouched = await manager.view(null); assert(untouched.profileRequired && 
 assert.equal(pageScope('https://canvas.example.test/one?token=PRIVATE#scene'), 'https://canvas.example.test/one');
 
 const a = await manager.create({ name: 'Adventure', copyFrom: 'default' }), b = await manager.create({ name: 'Strategy', copyFrom: 'default' });
-assert.equal(a.model, 'legacy-model'); assert(!a.hasApiKey && !a.rememberApiKey); assert.equal((await manager.get(a.profileId)).apiKey, '');
+assert.equal(a.model, 'legacy-model'); assert(a.hasApiKey && !a.rememberApiKey); assert.equal((await manager.get(a.profileId)).apiKey, 'TEST_ONLY_NOT_SECRET');
+assert.deepEqual(storage.local.data['profile:' + a.profileId].settings, { customPrompt: '' });
+assert(!Object.hasOwn(storage.local.data['profile:' + a.profileId], 'apiKey'));
 assert.equal(await manager.binding('https://canvas.example.test/new'), null, 'Creation and editing must not bind unknown pages');
 await manager.bind('https://canvas.example.test/one?token=PRIVATE', a.profileId); await manager.bind('https://canvas.example.test/two', b.profileId);
 assert.equal((await manager.binding('https://canvas.example.test/one?different=1')).id, a.profileId);
@@ -57,8 +59,9 @@ assert.throws(() => validateSettings({ ...DEFAULTS, customPrompt: 'x'.repeat(120
 await manager.configure(a.profileId, { paused: true }, true); assert((await manager.view(b.profileId)).paused && second.settings.paused);
 assert((await second.translate(same)).paused); await manager.configure(b.profileId, { paused: false }, true); assert(!first.settings.paused);
 await manager.configure(a.profileId, { interfaceLanguage: 'en', apiKey: 'PROFILE_A_TEST_KEY', rememberApiKey: true });
-assert.equal((await manager.view(b.profileId)).interfaceLanguage, 'en'); assert.equal(second.apiKey, '');
-assert.equal(storage.local.data['profile:' + a.profileId].apiKey, 'PROFILE_A_TEST_KEY');
+assert.equal((await manager.view(b.profileId)).interfaceLanguage, 'en'); assert.equal(second.apiKey, 'PROFILE_A_TEST_KEY');
+assert.equal(storage.local.data.sharedTranslationApiKey, 'PROFILE_A_TEST_KEY');
+assert(!Object.hasOwn(storage.local.data['profile:' + a.profileId], 'apiKey'));
 assert(!JSON.stringify(await manager.list()).includes('PROFILE_A_TEST_KEY'));
 await manager.rename(a.profileId, 'New adventure'); assert.equal((await manager.list()).profiles.find(row => row.id === a.profileId).name, 'New adventure');
 await assert.rejects(manager.rename(a.profileId, 'Strategy'), /已存在/); await assert.rejects(manager.create({ name: 'Strategy' }), /已存在/);
@@ -89,4 +92,4 @@ const batches = await Promise.all([one, two].map(async row => (await budget.get(
 assert.equal(freeCalls, 3); assert.equal(peak, 2); assert.equal(batches.flatMap(batch => batch.items).filter(item => item.error === 'BudgetExceeded').length, 1);
 assert.equal((await budget.view(one.profileId)).usedFreeCharacters, 6); assert.equal((await budget.view(two.profileId)).usedFreeCharacters, 6);
 date = '2026-10-08'; assert.equal((await budget.view(one.profileId)).usedFreeCharacters, 0);
-console.log('Profiles: legacy migration, independent settings/keys/caches/edits, prompts, bindings, unbound pages, restart, global pause/language, shared budget and concurrency passed.');
+console.log('Profiles: shared service/key/language migration, independent caches/edits/prompts, bindings, unbound pages, restart, global pause, shared budget and concurrency passed.');

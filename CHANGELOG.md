@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.0
+
+- Share the translation provider, API key, target language, pretranslation, dialogue context, fonts, and text switches across all profiles.
+- Separate shared configuration from profile-specific prompts, caches, and personal edits in the settings page.
+- Preserve unsaved shared form fields when switching or creating profiles; optional copying now copies only the additional prompt.
+- Migrate the previously edited profile's service and language, retaining existing prompts, bindings, translations, and a private backup of older local settings.
+- Apply shared changes to active and future profiles; cancel stale and queued requests across profiles.
+- Check the expected target language before editing personal translations, and verify migration, shared credentials, profile isolation, and settings UI behavior.
+
 ## 0.8.0
 
 - Add named profiles with independent translation settings, API keys, automatic caches, and personal edits.

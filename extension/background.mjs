@@ -52,6 +52,15 @@ async function handle(message, sender) {
   if (action === 'openOptions' && kind === 'page') { await chrome.runtime.openOptionsPage(); return {}; }
   if (kind !== 'settings') throw new Error('此操作只能在扩展设置中执行');
   if (action === 'getProfiles') return profiles.list();
+  if (action === 'getSharedSettings') return profiles.sharedView(true);
+  if (action === 'setSharedSettings') {
+    const result = await profiles.configure(null, payload); await broadcast(); return result;
+  }
+  if (action === 'setProfileSettings') {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload) || Object.keys(payload).some(key => key !== 'customPrompt')) throw new Error('Profile 只保存额外 Prompt，翻译服务和语言请在共用设置中修改');
+    const id = await selectedProfile(); if (!id) throw new Error('请选择有效的 Profile');
+    const result = await profiles.configure(id, payload); await broadcast(); return result;
+  }
   if (action === 'createProfile') return profiles.create(payload);
   if (action === 'selectEditorProfile') return profiles.selectEditor(payload?.id);
   if (action === 'renameProfile') { const result = await profiles.rename(await selectedProfile(), payload?.name); await broadcast(); return result; }
@@ -72,6 +81,7 @@ async function handle(message, sender) {
     const result = await profiles.configure(id, payload); await broadcast(); return result;
   }
   const engine = await profiles.get(id), cache = engine.cache, language = engine.settings.targetLanguage;
+  if (['exportTranslations', 'importTranslations', 'getPersonalTranslation', 'setPersonalTranslation', 'removePersonalTranslation'].includes(action) && message.targetLanguage && message.targetLanguage !== language) throw new Error('Profile 或目标语言已变化，请重新操作');
   if (action === 'test') return engine.translate([{ id: 'test', text: '「お父さん、大丈夫ですか？」' }], { fresh: true });
   if (action === 'probe') return engine.probe();
   if (action === 'getCacheStats') return { ...await cache.stats(language), targetLanguage: language, profileId: id, profileName: profiles.require(id).name };

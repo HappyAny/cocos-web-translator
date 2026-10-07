@@ -8,13 +8,15 @@ A Chrome / Edge extension for translating Cocos Web text. Translate accessible t
 
 1. Download the extension ZIP from Releases and extract it into a permanent folder.
 2. Enable Developer mode in your browser's extension manager. Load the extracted **extension** folder as an unpacked extension.
-3. Open settings from the popup, create a profile, configure its provider, target language, and optional translation prompt. Save and test a sentence.
+3. Open settings from the popup and configure the shared provider and translation options once. Create a profile below, add an optional prompt, save, and test it.
 4. Open a Cocos Web page and select the profile in the extension popup.
 5. Select the page and relevant embedded origins, enable them, and confirm browser authorization. Turn on dialogue and/or interface translation. Refresh if needed.
 
 Authorized sites are remembered. Embedded content on another origin needs its own authorization.
 
 Unknown pages never select an existing profile automatically. Bindings use the top page’s origin and path, excluding query strings and fragments. The popup shows the binding path. Switch manually when different content shares a path.
+
+Developer mode reads the selected unpacked directory directly. Keep that directory while using the extension; the downloaded ZIP can be deleted after installation.
 
 ## Features
 
@@ -24,7 +26,8 @@ Unknown pages never select an existing profile automatically. Bindings use the t
 - Seven target languages: Simplified Chinese, Traditional Chinese, English, Korean, French, German, and Spanish. Chinese / English extension interface.
 - Pretranslate 0–20 upcoming lines, default 2.
 - Optional speaker and dialogue context: latest 1–20 displayed lines, default 10, with no time expiry. Model APIs only; unplayed lines are excluded.
-- Named profiles with separate provider settings, credentials, target languages, prompts, caches, and personal edits.
+- One shared provider, API key, target language, pretranslation, dialogue context, and text switches for all profiles.
+- Named profiles with separate additional prompts, caches, and personal edits.
 - Quick profile selection for the current page in the popup; other pages keep their own bindings.
 - Per-profile and per-language cache and personal edits, JSON export/import, and single-line editing.
 - Bounded Map-based LRU hot caches, joined concurrent reads, and memoized SHA-256 cache keys.
@@ -40,13 +43,17 @@ For an older version without this menu, download **cocos-web-translator-updater.
 
 Keep the original extension installed and select the folder it actually loads. Settings, persistently saved keys, and compatible caches are retained. Session-only keys follow browser reload rules and may need to be re-entered. Invalid packages are rejected before writing. Original code is backed up under `.cocos-update-backups/`; write failures trigger rollback. The Windows **update.cmd** remains available.
 
-Existing settings, keys, compatible caches, and personal edits remain in the default profile. After updating, explicitly select the default or a new profile for each page and enable the required origins. Compatible older JSON files can be imported into the profile currently being edited. Clearing automatic cache affects that profile and preserves its personal edits.
+When upgrading to shared settings, the service, key, target language, and translation options are taken from the profile previously selected in the settings editor. Existing global pause and interface language are kept. The page identifies the migration source. Previous local profile configurations are retained in a browser-only migration backup; session-only keys are never persisted in it. Prompts, page bindings, caches, and personal edits remain independent. The default profile continues using the original database.
+
+Compatible older JSON files can be imported into the profile currently being edited. Clearing automatic cache affects that profile and preserves its personal edits.
 
 ## Profiles and prompts
 
-The settings dropdown selects the profile being edited. The popup dropdown chooses the profile running on the current page. Multiple pages bound to one profile share its settings and translations; create separate profiles for independent caches.
+The upper settings section manages the shared provider, key, languages, pretranslation, context, fonts, and text switches. Saving shared settings updates all profiles. The lower profile section only manages its additional prompt and personal translations. Switching profiles preserves unsaved shared form fields.
 
-An additional prompt supplies model APIs with character names, menu terminology, and translation style. Changing it gives automatic translations a new cache identity. Personal edits always take priority. A new profile starts with an empty cache; optional copying copies saved settings without credentials or cache.
+The settings dropdown selects the profile being edited. The popup dropdown chooses the profile running on the current page. Multiple pages bound to one profile share its prompt and translations; create separate profiles for independent terminology and caches.
+
+An additional prompt supplies model APIs with character names, menu terminology, and translation style. Changing it gives automatic translations a new cache identity. Personal edits always take priority. A new profile uses the shared provider and language automatically and starts with an empty cache; optional copying only copies the saved additional prompt.
 
 Persistent translations use SHA-256 keys in IndexedDB. A shared in-memory LRU budget holds up to 2,000 entries and approximately 4 MiB of cached data; key memoization has a separate approximately 2 MiB budget. Eviction does not remove persistent translations. JSON export/import operates on the profile and target language currently being edited.
 

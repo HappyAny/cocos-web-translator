@@ -13,7 +13,7 @@ async function request(action, body, scope = editingScope()) {
   if (extension && currentSettings && ['exportTranslations', 'importTranslations', 'getPersonalTranslation', 'setPersonalTranslation', 'removePersonalTranslation'].includes(action) && $('targetLanguage').value !== currentSettings.targetLanguage) throw new Error('请先保存目标语言设置，再操作个人译文');
   if (['exportTranslations', 'importTranslations', 'getPersonalTranslation', 'setPersonalTranslation', 'removePersonalTranslation'].includes(action)) assertScope(scope);
   if (extension) {
-    const response = await chrome.runtime.sendMessage({ action, payload: body, profileId: scope.profileId });
+    const response = await chrome.runtime.sendMessage({ action, payload: body, profileId: scope.profileId, targetLanguage: scope.targetLanguage });
     if (!response?.ok) throw new Error(response?.error || '扩展后台没有响应');
     return response.data;
   }
@@ -27,11 +27,12 @@ function values() {
     disableThinking: $('disableThinking').checked, thinkingPreset: $('thinkingPreset').value,
     requestTimeoutSeconds: Number($('requestTimeoutSeconds').value), lookahead: Number($('lookahead').value),
     targetLanguage: $('targetLanguage').value, interfaceLanguage: $('interfaceLanguage').value,
-    historyEnabled: $('historyEnabled').checked, historyMaxEntries: Number($('historyMaxEntries').value), customPrompt: $('customPrompt').value });
+    historyEnabled: $('historyEnabled').checked, historyMaxEntries: Number($('historyMaxEntries').value) });
   delete settings.paused;
+  delete settings.customPrompt;
   return settings;
 }
-function preview() { try { $('bodyPreview').textContent = JSON.stringify(buildModelBody(values(), '「お父さん、大丈夫ですか？」'), null, 2); } catch (error) { $('bodyPreview').textContent = localizeError(error.message); } }
+function preview() { try { $('bodyPreview').textContent = JSON.stringify(buildModelBody({ ...values(), customPrompt: $('customPrompt').value }, '「お父さん、大丈夫ですか？」'), null, 2); } catch (error) { $('bodyPreview').textContent = localizeError(error.message); } }
 function fields() {
   const model = $('provider').value === 'openai';
   $('modelFields').hidden = !model; $('budgetField').hidden = model; $('model').required = model;
@@ -57,39 +58,50 @@ function renderSummary() {
   if (testTranslation) $('testResult').textContent = t('testText', testTranslation);
   renderMessage();
 }
-function fill(data) {
-  const priorTarget = currentSettings?.targetLanguage, priorProfile = currentSettings?.profileId; currentSettings = { ...DEFAULTS, ...data };
-  for (const key of ['provider', 'apiBase', 'model', 'maxFreeCharacters', 'thinkingPreset', 'requestTimeoutSeconds', 'lookahead', 'targetLanguage', 'interfaceLanguage', 'historyMaxEntries', 'customPrompt']) $(key).value = currentSettings[key];
-  for (const key of ['storyEnabled', 'uiEnabled', 'systemFont', 'disableThinking', 'historyEnabled']) $(key).checked = !!currentSettings[key];
-  $('extraBody').value = JSON.stringify(currentSettings.extraBody || {}, null, 2);
-  $('apiKey').value = ''; $('clearApiKey').checked = false; $('rememberApiKey').checked = !!data.rememberApiKey;
-  setLanguage(currentSettings.interfaceLanguage); targetOptions(); renderSummary(); fields();
-  $('profileSelect').value = data.profileId; $('profileName').value = data.profileName;
-  if (priorProfile !== data.profileId || (priorTarget && priorTarget !== currentSettings.targetLanguage)) { $('personalOriginal').value = ''; $('personalTranslation').value = ''; $('personalStatus').textContent = ''; testTranslation = undefined; $('testResult').textContent = ''; }
+function fill(data, profileOnly = false) {
+  const priorTarget = currentSettings?.targetLanguage, priorProfile = currentSettings?.profileId; currentSettings = { ...DEFAULTS, ...currentSettings, ...data };
+  if (!profileOnly) {
+    for (const key of ['provider', 'apiBase', 'model', 'maxFreeCharacters', 'thinkingPreset', 'requestTimeoutSeconds', 'lookahead', 'targetLanguage', 'interfaceLanguage', 'historyMaxEntries']) $(key).value = currentSettings[key];
+    for (const key of ['storyEnabled', 'uiEnabled', 'systemFont', 'disableThinking', 'historyEnabled']) $(key).checked = !!currentSettings[key];
+    $('extraBody').value = JSON.stringify(currentSettings.extraBody || {}, null, 2);
+    $('apiKey').value = ''; $('clearApiKey').checked = false; $('rememberApiKey').checked = !!currentSettings.rememberApiKey;
+    setLanguage(currentSettings.interfaceLanguage); targetOptions();
+    $('migratedService').textContent = data.migratedFromProfile ? t('sharedMigrated', { name: data.migratedFromProfile }) : '';
+  }
+  if (data.profileId) { $('customPrompt').value = data.customPrompt || ''; $('profileSelect').value = data.profileId; $('profileName').value = data.profileName; }
+  renderSummary(); fields();
+  if (priorProfile !== currentSettings.profileId || (priorTarget && priorTarget !== currentSettings.targetLanguage)) { $('personalOriginal').value = ''; $('personalTranslation').value = ''; $('personalStatus').textContent = ''; testTranslation = undefined; $('testResult').textContent = ''; }
 }
 async function save() {
-  const scope = { profileId: editingId };
   const payload = { ...values(), apiKey: $('apiKey').value, clearApiKey: $('clearApiKey').checked, rememberApiKey: $('rememberApiKey').checked };
   if (extension && payload.provider === 'openai') {
     const granted = await chrome.permissions.request({ origins: [apiPermissionPattern(payload.apiBase)] });
     if (!granted) throw new Error('需要允许扩展访问所填写的 API 地址，才能保存并翻译');
   }
-  assertScope(scope); const data = await request('setSettings', payload, scope); assertScope(scope); fill(data); await refreshCacheInfo(); return data;
+  const data = await request('setSharedSettings', payload, {}); fill(data); await refreshCacheInfo(); return data;
+}
+async function savePrompt(scope = { profileId: editingId }) {
+  assertScope(scope);
+  const customPrompt = validateSettings({ ...DEFAULTS, ...currentSettings, customPrompt: $('customPrompt').value }).customPrompt;
+  const data = await request('setProfileSettings', { customPrompt }, scope); assertScope(scope); fill(data, true); await refreshCacheInfo(); return data;
 }
 for (const key of ['provider', 'disableThinking', 'thinkingPreset', 'historyEnabled', 'targetLanguage']) $(key).addEventListener('change', fields);
 for (const key of ['extraBody', 'model', 'apiBase', 'customPrompt']) $(key).addEventListener('input', preview);
 $('interfaceLanguage').addEventListener('change', () => { setLanguage($('interfaceLanguage').value); targetOptions(); renderSummary(); fields(); });
 $('formatBody').addEventListener('click', () => { try { $('extraBody').value = JSON.stringify(parseBody(), null, 2); preview(); message('jsonFormatted'); } catch (error) { messageError(error); } });
 $('settingsForm').addEventListener('submit', async event => { event.preventDefault(); $('save').disabled = true;
-  try { await save(); message('saved'); } catch (error) { messageError(error); } finally { $('save').disabled = false; }
+  try { await save(); message('sharedSaved'); } catch (error) { messageError(error); } finally { $('save').disabled = false; }
+});
+$('profileForm').addEventListener('submit', async event => { event.preventDefault(); $('saveProfile').disabled = true;
+  try { await savePrompt(); $('profileStatus').textContent = t('profileSaved'); } catch (error) { $('profileStatus').textContent = localizeError(error.message); } finally { $('saveProfile').disabled = false; }
 });
 $('test').addEventListener('click', async () => { $('test').disabled = true; $('testResult').textContent = ''; testTranslation = undefined;
   const scope = { profileId: editingId };
   try {
-    await save(); assertScope(scope); message('testing'); const result = await request('test', {}, scope), item = result.items[0]; assertScope(scope);
+    await save(); assertScope(scope); await savePrompt(scope); message('testing'); const result = await request('test', {}, scope), item = result.items[0]; assertScope(scope);
     if (item.error) { message('testFailure', { code: item.error, message: localizeError(item.errorMessage || '服务请求失败'), elapsed: result.elapsedMs }, true); return; }
     testTranslation = { original: '「お父さん、大丈夫ですか？」', translation: item.text };
-    const updated = await request('getSettings', undefined, scope); assertScope(scope); fill(updated); await refreshCacheInfo(); message('testSuccess', { elapsed: result.elapsedMs });
+    const updated = await request('getSettings', undefined, scope); assertScope(scope); fill(updated, true); await refreshCacheInfo(); message('testSuccess', { elapsed: result.elapsedMs });
   } catch (error) { messageError(error); } finally { $('test').disabled = false; }
 });
 $('probe').addEventListener('click', async () => { $('probe').disabled = true;
@@ -114,7 +126,7 @@ async function loadProfile(id) {
   $('cacheInfo').textContent = t('cacheLoading');
   const data = await request('selectEditorProfile', { id });
   if (editingId !== id) return;
-  fill(data); renderProfiles(); await refreshCacheInfo();
+  fill(data, true); renderProfiles(); await refreshCacheInfo();
 }
 $('profileSelect').addEventListener('change', async () => { const id = $('profileSelect').value;
   try { await loadProfile(id); } catch (error) { $('profileStatus').textContent = localizeError(error.message); renderProfiles(); }
@@ -122,16 +134,16 @@ $('profileSelect').addEventListener('change', async () => { const id = $('profil
 $('createProfile').addEventListener('click', async () => { $('createProfile').disabled = true;
   try {
     const data = await request('createProfile', { name: $('profileName').value, ...($('copyProfile').checked ? { copyFrom: editingId } : {}) });
-    editingId = data.profileId; fill(data); await loadProfiles(); await refreshCacheInfo(); $('profileStatus').textContent = t('profileCreated');
+    editingId = data.profileId; fill(data, true); await loadProfiles(); await refreshCacheInfo(); $('profileStatus').textContent = t('profileCreated');
   } catch (error) { $('profileStatus').textContent = localizeError(error.message); } finally { $('createProfile').disabled = false; }
 });
 $('renameProfile').addEventListener('click', async () => { $('renameProfile').disabled = true; const scope = { profileId: editingId };
-  try { const data = await request('renameProfile', { name: $('profileName').value }, scope); assertScope(scope); fill(data); await loadProfiles(); $('profileStatus').textContent = t('profileRenamed'); }
+  try { const data = await request('renameProfile', { name: $('profileName').value }, scope); assertScope(scope); fill(data, true); await loadProfiles(); $('profileStatus').textContent = t('profileRenamed'); }
   catch (error) { $('profileStatus').textContent = localizeError(error.message); } finally { $('renameProfile').disabled = false; }
 });
 for (const key of ['rememberKeyRow', 'cacheRow', 'personalCard', 'updateCard', 'extendedSettings', 'historySettings']) $(key).hidden = !extension;
 applyLanguage(); targetOptions();
-(async () => { const data = await loadProfiles(), params = new URL(location.href).searchParams;
+(async () => { fill(await request('getSharedSettings', undefined, {})); const data = await loadProfiles(), params = new URL(location.href).searchParams;
   const id = params.get('profile') || data.editorId; await loadProfile(id);
   if (params.has('new')) { $('profileName').value = ''; $('profileName').focus(); }
 })().catch(error => {

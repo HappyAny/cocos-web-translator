@@ -11,7 +11,7 @@ const enabled = ['https://canvas.example.test'];
 assert.equal(senderKind(own, 'test-extension'), 'settings'); assert.equal(senderKind(page, 'test-extension', enabled), 'page');
 for (const sender of [{ ...page, id: 'other' }, { ...page, url: 'https://unselected.example.test/client' }, { ...page, url: 'https://canvas.example.test.evil.test/client' }, { ...page, tab: undefined }]) assert.equal(senderKind(sender, 'test-extension', enabled), null);
 const listener = f.chrome.runtime.onMessage.listeners[0], send = (message, sender) => new Promise(resolve => listener(message, sender, resolve));
-for (const action of ['setSettings', 'setPreferences', 'getSettings', 'probe', 'exportTranslations', 'importTranslations', 'getCacheStats', 'getPersonalTranslation', 'setPersonalTranslation', 'removePersonalTranslation', 'clearCache', 'getPageContext', 'enableSites', 'disableSites', 'getProfiles', 'createProfile', 'renameProfile', 'bindPageProfile', 'selectEditorProfile']) assert.equal((await send({ action, payload: {} }, page)).ok, false, action);
+for (const action of ['setSettings', 'setPreferences', 'getSettings', 'getSharedSettings', 'setSharedSettings', 'setProfileSettings', 'probe', 'exportTranslations', 'importTranslations', 'getCacheStats', 'getPersonalTranslation', 'setPersonalTranslation', 'removePersonalTranslation', 'clearCache', 'getPageContext', 'enableSites', 'disableSites', 'getProfiles', 'createProfile', 'renameProfile', 'bindPageProfile', 'selectEditorProfile']) assert.equal((await send({ action, payload: {} }, page)).ok, false, action);
 assert.equal((await send({ action: 'setSettings', payload: { provider: 'openai', apiBase: 'https://api.example.test/v1', model: 'test-model', apiKey: 'TEST_ONLY_NOT_SECRET' } }, own)).ok, true);
 const preferences = await send({ action: 'getPreferences' }, page); assert(preferences.ok);
 assert(preferences.data.profileRequired && !preferences.data.profileId && !preferences.data.storyEnabled);
@@ -30,6 +30,14 @@ const held = await send({ action: 'translate', payload: { items: [{ id: 'held', 
 assert(held.ok && held.data.paused); assert.equal(held.data.items[0].text, 'メニュー');
 assert.equal(senderKind({ ...own, url: 'chrome-extension://test-extension/update.html' }, 'test-extension'), 'settings');
 const second = (await send({ action: 'createProfile', payload: { name: 'Second' } }, own)).data;
+assert(second.hasApiKey && second.model === 'test-model');
+assert((await send({ action: 'setSharedSettings', payload: { targetLanguage: 'en', lookahead: 8 } }, own)).ok);
+for (const profileId of ['default', second.profileId]) { const settings = (await send({ action: 'getSettings', profileId }, own)).data; assert.equal(settings.targetLanguage, 'en'); assert.equal(settings.lookahead, 8); }
+assert.equal((await send({ action: 'setProfileSettings', profileId: second.profileId, payload: { targetLanguage: 'ko' } }, own)).ok, false);
+assert((await send({ action: 'setProfileSettings', profileId: second.profileId, payload: { customPrompt: 'Names: アリス = Alice.' } }, own)).ok);
+assert.equal((await send({ action: 'getSettings', profileId: 'default' }, own)).data.customPrompt, '');
+const wrongLanguage = await send({ action: 'setPersonalTranslation', profileId: second.profileId, targetLanguage: 'zh-CN', payload: { original: 'アリス', translation: 'Wrong language' } }, own);
+assert.equal(wrongLanguage.ok, false); assert(wrongLanguage.error.includes('目标语言'));
 assert.equal((await send({ action: 'getPageContext' }, own)).data.profileId, 'default');
 assert.equal((await send({ action: 'getPreferences', profileId: second.profileId }, page)).data.profileId, 'default', 'A page must not select a foreign profile');
 assert((await send({ action: 'setPreferences', profileId: 'default', payload: { paused: false } }, own)).ok);
