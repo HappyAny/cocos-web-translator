@@ -1,3 +1,4 @@
+import { pageScope } from './core.mjs';
 export function webOrigin(value) {
   const url = new URL(value);
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('请选择 HTTP(S) 网页');
@@ -33,7 +34,7 @@ export function createSiteAccess(api) {
   async function frames(tabId) {
     if (!Number.isInteger(tabId) || tabId < 0) throw new Error('无法读取当前网页');
     return (await api.webNavigation.getAllFrames({ tabId }) || []).flatMap(frame => {
-      try { return [{ frameId: frame.frameId, origin: webOrigin(frame.url) }]; } catch { return []; }
+      try { return [{ frameId: frame.frameId, origin: webOrigin(frame.url), scope: pageScope(frame.url) }]; } catch { return []; }
     });
   }
   async function inject(tabId) {
@@ -45,11 +46,23 @@ export function createSiteAccess(api) {
   const ready = serial(synchronize);
   return {
     ready, active, synchronize: () => serial(synchronize),
+    async scope(tabId) { return (await frames(tabId)).find(frame => frame.frameId === 0)?.scope || null; },
+    async broadcastPreferences(preferences) {
+      const enabled = new Set(await active());
+      if (!enabled.size) return;
+      const tabs = await api.tabs.query({});
+      await Promise.allSettled(tabs.filter(tab => Number.isInteger(tab.id)).map(async tab => {
+        const rows = await frames(tab.id), frameIds = rows.filter(frame => enabled.has(frame.origin)).map(frame => frame.frameId);
+        const prefs = typeof preferences === 'function' ? await preferences(tab.id, rows.find(frame => frame.frameId === 0)?.scope || null) : preferences;
+        if (frameIds.length) await api.scripting.executeScript({ target: { tabId: tab.id, frameIds }, world: 'MAIN',
+          func: prefs => window.__CocosWebTranslator?.applyPreferences?.(prefs), args: [prefs] });
+      }));
+    },
     async context() {
       const [tab] = await api.tabs.query({ active: true, currentWindow: true });
       if (!Number.isInteger(tab?.id)) throw new Error('无法读取当前网页');
-      const enabled = new Set(await active()), origins = [...new Set((await frames(tab.id)).map(frame => frame.origin))];
-      return { tabId: tab.id, origins: origins.map(origin => ({ origin, enabled: enabled.has(origin) })) };
+      const enabled = new Set(await active()), rows = await frames(tab.id), origins = [...new Set(rows.map(frame => frame.origin))];
+      return { tabId: tab.id, scope: rows.find(frame => frame.frameId === 0)?.scope || null, origins: origins.map(origin => ({ origin, enabled: enabled.has(origin) })) };
     },
     async enable(origins, tabId) {
       if (!Array.isArray(origins) || !origins.length || origins.length > 20) throw new Error('请选择要启用的网页域名');

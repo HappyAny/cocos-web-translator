@@ -1,16 +1,20 @@
 # Cocos Web Translator · Cocos翻译机
 
-Load this folder as an unpacked Chrome / Edge extension. Open a Cocos Web page, click the extension icon, select its page and embedded origins, and enable translation. Open settings to select the provider, target language, pretranslation, and dialogue context.
+Load this folder as an unpacked Chrome / Edge extension. Create a profile in settings and configure its provider, target language, prompt, pretranslation, and dialogue context. Open a Cocos Web page, select the profile in the popup, authorize the page and relevant embedded origins, and enable translation.
 
-在扩展管理页加载本文件夹。打开 Cocos Web 页面，在扩展弹窗启用当前网页及需要的嵌入域名，再配置翻译服务和开关。
+在扩展管理页加载本文件夹。设置页新建并配置 Profile，在 Cocos Web 网页的小菜单选择运行 Profile，启用当前网页及需要的嵌入域名。
 
-Update by replacing the public files in your existing extension folder. The outer `update.cmd` can do this on Windows with hash validation and a backup. Reload the existing extension and refresh the page to apply the update. Use the original installation folder to retain settings and cache.
+Click **Update extension** in the popup and drop the new Release ZIP. Select your original loaded extension folder on first use, allow read/write access, and update. The folder is remembered, public files are verified and backed up, and write failures trigger rollback. Reload the existing extension and refresh the page. Older installations can use the outer **update.html** or the standalone updater HTML from Releases. The Windows `update.cmd` is also available. Keep the original folder and extension installed to retain settings and cache.
+
+The popup also has **Pause translation / Resume translation**. Pause applies to every enabled page, remembers its state, and keeps the previous dialogue and interface switches. Explicit translation tests in settings remain available.
+
+Profile settings, credentials, caches, and personal edits are independent. The popup remembers the current page's selection by its top-level origin and path. Unknown pages require an explicit profile choice. Settings-page selection only changes the editing target. Existing data stays in the default profile. Additional prompts apply to model APIs; prompt changes use separate automatic cache keys, while personal edits take priority.
 
 Full documentation, source, and installable releases: [HappyAny/cocos-web-translator](https://github.com/HappyAny/cocos-web-translator).
 
 Supports accessible Cocos Label/RichText components and compatible dialogue interfaces. Custom rendering and engine versions may require adapters. Text in images, chat, and inputs is excluded. Translation source is Japanese; seven target languages are available. History uses only the latest displayed lines with no time expiry, and only model APIs use it.
 
-Personal translations use `format: cocos-translations`, `version: 1`, and a target language field. Export, edit, and import JSON, or edit a single line in settings. Compatible older exports can be imported. Clearing automatic cache keeps personal edits.
+Personal translations use `format: cocos-translations`, `version: 1`, and a target language field. Export the current profile and language, edit, and import JSON, or edit a single line in settings. Compatible older exports can be imported into the current profile. Clearing its automatic cache keeps personal edits and other profiles' records. Bounded memory caches reduce repeated IndexedDB reads and hash computations without deleting persistent data.
 
 No client assets, personal data, API keys, or development dependencies are included in the package.
 

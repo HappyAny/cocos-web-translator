@@ -1,9 +1,12 @@
 import { DEFAULTS, validateSettings, buildModelBody, providerIdentity, stableJson, normalizeHistory } from './core.mjs';
+import { LruCache, CACHE_MISS } from './lru.mjs';
+const keyHashes = new LruCache({ maxEntries: 2000, maxBytes: 2 * 1024 * 1024 });
+const hashWork = new Map();
 const KANA = /[\u3040-\u30ff]/;
 function failure(name, message) { const error = new Error(message); error.name = name; return error; }
 const HTTP_HINTS = { 400: '请求 Body 格式不合法', 401: 'API 密钥认证失败，请重新填写密钥', 402: 'API 账户余额不足',
   403: '服务拒绝访问', 404: '接口路径或模型不存在', 422: '模型或 Body 参数不合法', 429: '服务限流，请稍后再试', 500: '服务内部错误', 503: '服务暂时繁忙' };
-const SAFE_ERRORS = new Set(['BudgetExceeded', 'PermissionRequired', 'ProviderError', 'InvalidTranslation', 'MissingApiKey', 'RequestTimeout', 'NetworkError', 'ProviderResponseError', 'CacheError']);
+const SAFE_ERRORS = new Set(['BudgetExceeded', 'PermissionRequired', 'ProviderError', 'InvalidTranslation', 'MissingApiKey', 'RequestTimeout', 'NetworkError', 'ProviderResponseError', 'CacheError', 'TranslationPaused', 'TranslationChanged']);
 function requestError(error, aborted, seconds) {
   if (aborted || error?.name === 'AbortError') return failure('RequestTimeout', '翻译请求超时（' + seconds + ' 秒），可开启禁止思考或增大请求超时');
   if (error?.name === 'TypeError') return failure('NetworkError', '浏览器无法发出请求或连接服务，请检查网络、代理、API 访问权限及密钥字符格式');
@@ -11,6 +14,9 @@ function requestError(error, aborted, seconds) {
 }
 export function localDate() { const d = new Date(); return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-'); }
 export async function digest(text) { return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))), byte => byte.toString(16).padStart(2, '0')).join(''); }
+export function validateItems(items) {
+  if (!Array.isArray(items) || items.length < 1 || items.length > 8 || items.some(item => !item || typeof item.id !== 'string' || item.id.length > 100 || typeof item.text !== 'string' || item.text.length > 2000)) throw new Error('须提交 1 到 8 条有效文字，每条最多 2000 字符');
+}
 export function decodeEntities(text) {
   return text.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos|nbsp);/gi, (whole, part) => {
     if (part[0] === '#') { const n = part[1].toLowerCase() === 'x' ? parseInt(part.slice(2), 16) : Number(part.slice(1)); return n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : whole; }
@@ -25,9 +31,10 @@ export function chunks(text, limit = 450) {
 export class TranslationEngine {
   // Window/Worker native fetch requires its global receiver. An arrow wrapper keeps
   // that receiver when the dependency is later called as this.fetchImpl(...).
-  constructor({ storage, cache, glossary, fetchImpl = (...args) => globalThis.fetch(...args), permitted = async () => false, date = localDate, timeoutMs = null }) {
-    Object.assign(this, { storage, cache, glossary, fetchImpl, permitted, date, timeoutMs });
-    this.queue = Promise.resolve(); this.inflight = new Map(); this.networkActive = 0; this.networkWaiters = [];
+  constructor({ storage, cache, glossary, fetchImpl = (...args) => globalThis.fetch(...args), permitted = async () => false, date = localDate, timeoutMs = null, usageLedger = null, networkScheduler = null }) {
+    Object.assign(this, { storage, cache, glossary, fetchImpl, permitted, date, timeoutMs, usageLedger, networkScheduler });
+    this.queue = Promise.resolve(); this.inflight = new Map(); this.networkActive = 0; this.networkWaiters = []; this.pageRequests = new Set();
+    this.identities = new WeakMap(); this.translationEpoch = 0; this.hashStats = { computations: 0, hits: 0, joined: 0 };
     this.ready = this.load();
   }
   async load() {
@@ -39,20 +46,38 @@ export class TranslationEngine {
     this.usage = local.usage?.date === this.date() ? local.usage : { date: this.date(), characters: 0 };
   }
   serial(callback) { const result = this.queue.then(callback); this.queue = result.catch(() => {}); return result; }
+  identity(settings) {
+    if (!this.identities.has(settings)) { const value = providerIdentity(settings); this.identities.set(settings, { value, encoded: stableJson(value) }); }
+    return this.identities.get(settings);
+  }
+  async memoDigest(encoded) {
+    const hit = keyHashes.get(encoded); if (hit !== CACHE_MISS) { this.hashStats.hits++; return hit; }
+    if (hashWork.has(encoded)) { this.hashStats.joined++; return hashWork.get(encoded); }
+    this.hashStats.computations++;
+    const work = digest(encoded).then(key => { keyHashes.set(encoded, key); return key; });
+    hashWork.set(encoded, work);
+    try { return await work; } finally { if (hashWork.get(encoded) === work) hashWork.delete(encoded); }
+  }
+  cancelPageRequests() { this.translationEpoch++; for (const controller of this.pageRequests) controller.abort(); }
+  async applySharedPreferences(preferences) {
+    await this.ready; const wasPaused = this.settings.paused; this.settings = validateSettings({ ...this.settings, ...preferences });
+    if (this.settings.paused && !wasPaused) this.cancelPageRequests();
+  }
+  diagnostics() { return { hashes: { ...this.hashStats }, keyEntries: keyHashes.entries.size, keyBytes: keyHashes.bytes }; }
   async publicSettings(full = false) {
     await this.ready;
-    const settings = this.settings;
+    const settings = this.settings, revision = this.revision, providerRevision = this.providerRevision;
     const result = full ? { ...settings, rememberApiKey: this.rememberApiKey, hasApiKey: !!this.apiKey } :
-      Object.fromEntries(['provider', 'storyEnabled', 'uiEnabled', 'systemFont', 'maxFreeCharacters', 'requestTimeoutSeconds',
+      Object.fromEntries(['provider', 'storyEnabled', 'uiEnabled', 'systemFont', 'paused', 'maxFreeCharacters', 'requestTimeoutSeconds',
         'lookahead', 'targetLanguage', 'interfaceLanguage', 'historyEnabled', 'historyMaxEntries'].map(key => [key, settings[key]]));
     const personalKeys = (await this.cache.overrideOriginals?.(settings.targetLanguage) || []).filter(text => !KANA.test(text)).map(text => text.replace(/<[^>]*>/g, '').trim());
-    return { ...result, revision: this.revision, uiGlossaryKeys: [...new Set([...Object.keys(this.glossary), ...personalKeys])], personalTextKeys: personalKeys,
-      usedFreeCharacters: this.usage.date === this.date() ? this.usage.characters : 0,
-      providerSignature: (await digest(stableJson(providerIdentity(settings)))).slice(0, 16) + ':' + this.providerRevision };
+    return { ...result, revision, uiGlossaryKeys: [...new Set([...Object.keys(this.glossary), ...personalKeys])], personalTextKeys: personalKeys,
+      usedFreeCharacters: this.usageLedger ? (await this.usageLedger.current()).characters : (this.usage.date === this.date() ? this.usage.characters : 0),
+      providerSignature: (await this.memoDigest(this.identity(settings).encoded)).slice(0, 16) + ':' + providerRevision };
   }
   async invalidateTranslations() {
     await this.ready;
-    return this.serial(async () => { this.revision++; this.providerRevision++;
+    return this.serial(async () => { this.cancelPageRequests(); this.revision++; this.providerRevision++;
       await this.storage.local.set({ revision: this.revision, providerRevision: this.providerRevision }); return {};
     });
   }
@@ -60,12 +85,12 @@ export class TranslationEngine {
     await this.ready;
     return this.serial(async () => {
       if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('设置须为 JSON 对象');
-      const allowed = preferencesOnly ? ['storyEnabled', 'uiEnabled', 'systemFont'] : Object.keys(DEFAULTS);
+      const allowed = preferencesOnly ? ['storyEnabled', 'uiEnabled', 'systemFont', 'paused'] : Object.keys(DEFAULTS);
       const settings = validateSettings({ ...this.settings, ...Object.fromEntries(allowed.filter(key => Object.hasOwn(payload, key)).map(key => [key, payload[key]])) });
       const key = preferencesOnly ? '' : (payload.apiKey || '');
       if (typeof key !== 'string' || key.length > 5000 || /[\r\n]/.test(key)) throw new Error('密钥格式不合法');
       if (!preferencesOnly) {
-        if (stableJson(providerIdentity(settings)) !== stableJson(providerIdentity(this.settings)) || settings.requestTimeoutSeconds !== this.settings.requestTimeoutSeconds || key || payload.clearApiKey) this.providerRevision++;
+        if (this.identity(settings).encoded !== this.identity(this.settings).encoded || settings.requestTimeoutSeconds !== this.settings.requestTimeoutSeconds || key || payload.clearApiKey) { this.providerRevision++; this.cancelPageRequests(); }
         if (settings.apiBase !== this.settings.apiBase || payload.clearApiKey) this.apiKey = '';
         if (key) this.apiKey = key;
         if (Object.hasOwn(payload, 'rememberApiKey')) this.rememberApiKey = !!payload.rememberApiKey;
@@ -75,12 +100,14 @@ export class TranslationEngine {
           await this.storage.session.set({ apiKey: this.apiKey }); await this.storage.local.remove('apiKey');
         }
       }
-      this.settings = settings; this.revision++;
+      const wasPaused = this.settings.paused; this.settings = settings; this.revision++;
+      if (settings.paused && !wasPaused) this.cancelPageRequests();
       await this.storage.local.set({ settings, revision: this.revision, providerRevision: this.providerRevision, rememberApiKey: this.rememberApiKey });
       return this.publicSettings(!preferencesOnly);
     });
   }
   async reserve(text, limit) {
+    if (this.usageLedger) return this.usageLedger.reserve(text, limit);
     return this.serial(async () => {
       if (this.usage.date !== this.date()) this.usage = { date: this.date(), characters: 0 };
       const count = [...text].length;
@@ -89,6 +116,7 @@ export class TranslationEngine {
     });
   }
   async network(callback) {
+    if (this.networkScheduler) return this.networkScheduler(callback);
     if (this.networkActive >= 2) await new Promise(resolve => this.networkWaiters.push(resolve));
     else this.networkActive++;
     try { return await callback(); }
@@ -115,14 +143,17 @@ export class TranslationEngine {
   }
   async plain(text, settings, token, fresh = false, reference = {}) {
     const language = settings.targetLanguage;
+    const epoch = this.translationEpoch;
     const personal = fresh ? undefined : await this.personal(text, language); if (typeof personal === 'string') return { text: personal, cached: true, personal: true };
-    const identity = [...providerIdentity(settings), 'ja', language, text];
-    if (reference.history?.length || reference.speaker) identity.push(reference);
-    const key = await digest(stableJson(identity));
+    const suffix = ['ja', language, text];
+    if (reference.history?.length || reference.speaker) suffix.push(reference);
+    const key = await this.memoDigest(this.identity(settings).encoded.slice(0, -1) + ',' + stableJson(suffix).slice(1));
     if (!fresh) { const hit = await this.cached(key, text, language); if (typeof hit === 'string') return { text: hit, cached: true }; }
-    const pendingKey = key + (fresh ? ':test' : '');
+    const pendingKey = key + ':' + epoch + (fresh ? ':test' : '');
     if (this.inflight.has(pendingKey)) return this.inflight.get(pendingKey);
     const work = this.network(async () => {
+      if (!fresh && this.settings.paused) throw failure('TranslationPaused', '翻译已暂停');
+      if (!fresh && epoch !== this.translationEpoch) throw failure('TranslationChanged', '翻译配置已变化，请重试');
       // Recheck after queueing: another request may have filled this cache entry.
       if (!fresh) { const existing = await this.cached(key, text, language); if (typeof existing === 'string') return { text: existing, cached: true }; }
       let url, options, translated;
@@ -137,7 +168,10 @@ export class TranslationEngine {
         options = { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) }, body: JSON.stringify(buildModelBody(settings, text, reference)) };
       }
       const milliseconds = this.timeoutMs ?? settings.requestTimeoutSeconds * 1000;
+      if (!fresh && this.settings.paused) throw failure('TranslationPaused', '翻译已暂停');
+      if (!fresh && epoch !== this.translationEpoch) throw failure('TranslationChanged', '翻译配置已变化，请重试');
       const controller = new AbortController(), timer = setTimeout(() => controller.abort(), milliseconds);
+      if (!fresh) this.pageRequests.add(controller);
       try {
         const response = await this.fetchImpl(url, { ...options, signal: controller.signal, credentials: 'omit', redirect: 'error' });
         if (!response.ok) throw failure('ProviderError', 'HTTP ' + response.status + '：' + (HTTP_HINTS[response.status] || '翻译接口拒绝了请求，请检查地址、模型和参数'));
@@ -150,8 +184,9 @@ export class TranslationEngine {
           translated = decodeEntities(data.responseData?.translatedText || '');
           if (/MYMEMORY WARNING|QUERY LENGTH LIMIT/i.test(translated)) throw failure('ProviderError', '免密钥翻译服务拒绝了请求');
         } else translated = data.choices?.[0]?.message?.content;
-      } catch (error) { throw requestError(error, controller.signal.aborted, milliseconds / 1000); }
-      finally { clearTimeout(timer); }
+      } catch (error) { throw !fresh && this.settings.paused ? failure('TranslationPaused', '翻译已暂停') : (!fresh && epoch !== this.translationEpoch ? failure('TranslationChanged', '翻译配置已变化，请重试') : requestError(error, controller.signal.aborted, milliseconds / 1000)); }
+      finally { clearTimeout(timer); this.pageRequests.delete(controller); }
+      if (epoch !== this.translationEpoch) throw failure('TranslationChanged', '翻译配置已变化，请重试');
       if (typeof translated !== 'string' || !translated.trim() || translated.length > text.length * 5 + 200 || /<\/?think\b/i.test(translated)) throw failure('InvalidTranslation', '模型没有返回可用的译文，请检查思考参数和输出长度');
       translated = translated.trim().replace(/</g, '＜').replace(/>/g, '＞');
       try { await this.cache.put(key, translated, text, language); } catch { throw failure('CacheError', '浏览器无法保存翻译缓存，请重新加载扩展后再试'); }
@@ -169,7 +204,7 @@ export class TranslationEngine {
       else {
         const revision = fresh ? undefined : await this.personal(part, settings.targetLanguage);
         if (typeof revision === 'string') { output.push(revision); personalUsed = true; }
-        else if (settings.targetLanguage === 'zh-CN' && Object.hasOwn(this.glossary, trimmed)) output.push(part.replace(trimmed, this.glossary[trimmed]));
+        else if (settings.targetLanguage === 'zh-CN' && !(settings.provider === 'openai' && settings.customPrompt) && Object.hasOwn(this.glossary, trimmed)) output.push(part.replace(trimmed, this.glossary[trimmed]));
         else if ((!KANA.test(part) && !Object.hasOwn(this.glossary, trimmed)) || part.includes('|')) output.push(part);
         else for (const chunk of chunks(part)) { const result = await this.plain(chunk, settings, token, fresh, reference); output.push(result.text); cached &&= result.cached; personalUsed ||= !!result.personal; }
       }
@@ -178,8 +213,9 @@ export class TranslationEngine {
   }
   async translate(items, { fresh = false } = {}) {
     await this.ready;
-    if (!Array.isArray(items) || items.length < 1 || items.length > 8 || items.some(item => !item || typeof item.id !== 'string' || item.id.length > 100 || typeof item.text !== 'string' || item.text.length > 2000)) throw new Error('须提交 1 到 8 条有效文字，每条最多 2000 字符');
-    const settings = { ...this.settings }, token = this.apiKey, start = Date.now();
+    validateItems(items);
+    if (!fresh && this.settings.paused) return { items: items.map(item => ({ id: item.id, text: item.text })), paused: true, elapsedMs: 0 };
+    const settings = this.settings, token = this.apiKey, start = Date.now();
     const results = await Promise.all(items.map(async item => {
       const reference = !fresh && item.kind === 'story' && settings.historyEnabled && settings.provider === 'openai' ?
         { history: normalizeHistory(item.history, settings), speaker: typeof item.speaker === 'string' ? item.speaker.slice(0, 150) : '' } : {};

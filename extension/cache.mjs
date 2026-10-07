@@ -1,5 +1,7 @@
 import { TARGET_LANGUAGES } from './core.mjs';
 import { migrateCache } from './cache-migration.mjs';
+import { LruCache, CACHE_MISS } from './lru.mjs';
+const cacheFactories = new WeakMap();
 
 export function validateTranslationFile(file) {
   if (!file || typeof file !== 'object' || Array.isArray(file) || typeof file.format !== 'string' || !/^[a-z]+-translations$/.test(file.format) || file.version !== 1 ||
@@ -19,6 +21,20 @@ export function validateTranslationFile(file) {
 
 // Automatic cache and personal edits are independent; clearing cache keeps edits.
 export function createCache(indexedDB, databaseName = 'cocos-translations') {
+  if (!cacheFactories.has(indexedDB)) cacheFactories.set(indexedDB, { hot: new LruCache(), scopes: new Map() });
+  const factory = cacheFactories.get(indexedDB), prefix = databaseName + '\0';
+  if (!factory.scopes.has(databaseName)) factory.scopes.set(databaseName, { automatic: 0, overrides: 0, pending: new Map() });
+  const scope = factory.scopes.get(databaseName), diagnostics = { hotHits: 0, diskReads: 0, joinedReads: 0 };
+  async function hotRead(kind, key, read) {
+    const memoryKey = prefix + kind + '\0' + key, hit = factory.hot.get(memoryKey);
+    if (hit !== CACHE_MISS) { diagnostics.hotHits++; return hit; }
+    if (scope.pending.has(memoryKey)) { diagnostics.joinedReads++; return scope.pending.get(memoryKey); }
+    const epoch = scope[kind === 'automatic' ? 'automatic' : 'overrides'];
+    const work = read().then(value => { if (scope[kind === 'automatic' ? 'automatic' : 'overrides'] === epoch) factory.hot.set(memoryKey, value); return value; });
+    scope.pending.set(memoryKey, work);
+    try { return await work; } finally { if (scope.pending.get(memoryKey) === work) scope.pending.delete(memoryKey); }
+  }
+  function invalidate(kind) { scope[kind]++; factory.hot.clearPrefix(prefix + kind + '\0'); if (kind === 'overrides') factory.hot.clearPrefix(prefix + 'names\0'); scope.pending.clear(); }
   let database;
   function open() {
     if (!database) database = new Promise((resolve, reject) => {
@@ -36,6 +52,7 @@ export function createCache(indexedDB, databaseName = 'cocos-translations') {
     return database;
   }
   async function transaction(mode, callback, storeName = 'translations') {
+    if (mode === 'readonly') diagnostics.diskReads++;
     const db = await open();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(storeName, mode), request = callback(tx.objectStore(storeName));
@@ -46,20 +63,21 @@ export function createCache(indexedDB, databaseName = 'cocos-translations') {
       tx.onabort = () => reject(tx.error || new Error('Cache transaction aborted'));
     });
   }
-  const put = (key, value, original, targetLanguage = 'zh-CN') => transaction('readwrite', store => store.put({ original: original || null, translation: value, targetLanguage, updatedAt: Date.now() }, key));
+  const put = async (key, value, original, targetLanguage = 'zh-CN') => { await transaction('readwrite', store => store.put({ original: original || null, translation: value, targetLanguage, updatedAt: Date.now() }, key)); scope.automatic++; factory.hot.set(prefix + 'automatic\0' + key, value); };
   const all = () => Promise.all(['translations', 'overrides'].map(name => transaction('readonly', store => store.getAll(), name)));
   const belongs = (value, language) => (value?.targetLanguage || 'zh-CN') === language;
   const overrideKey = (original, language) => language === 'zh-CN' ? original : language + '\0' + original;
   return {
-    async get(key, original, targetLanguage = 'zh-CN') { const value = await transaction('readonly', store => store.get(key));
+    async get(key, original, targetLanguage = 'zh-CN') { return hotRead('automatic', key, async () => { const value = await transaction('readonly', store => store.get(key));
       if (typeof value === 'string') { if (original) await put(key, value, original, targetLanguage); return value; }
       if (value?.translation && !value.original && original) await put(key, value.translation, original, targetLanguage);
       return value?.translation;
-    }, put,
-    clear: () => transaction('readwrite', store => store.clear()),
-    async getOverride(original, targetLanguage = 'zh-CN') { const value = await transaction('readonly', store => store.get(overrideKey(original, targetLanguage)), 'overrides'); return value?.original === original && belongs(value, targetLanguage) ? value.translation : undefined; },
-    async overrideOriginals(targetLanguage = 'zh-CN') { return (await transaction('readonly', store => store.getAll(), 'overrides')).filter(value => belongs(value, targetLanguage)).map(value => value.original); },
-    removeOverride: (original, targetLanguage = 'zh-CN') => transaction('readwrite', store => store.delete(overrideKey(original, targetLanguage)), 'overrides'),
+    }); }, put,
+    async clear() { await transaction('readwrite', store => store.clear()); invalidate('automatic'); },
+    async getOverride(original, targetLanguage = 'zh-CN') { return hotRead('overrides', overrideKey(original, targetLanguage), async () => { const value = await transaction('readonly', store => store.get(overrideKey(original, targetLanguage)), 'overrides'); return value?.original === original && belongs(value, targetLanguage) ? value.translation : undefined; }); },
+    async overrideOriginals(targetLanguage = 'zh-CN') { return hotRead('names', targetLanguage, async () => (await transaction('readonly', store => store.getAll(), 'overrides')).filter(value => belongs(value, targetLanguage)).map(value => value.original)); },
+    async removeOverride(original, targetLanguage = 'zh-CN') { await transaction('readwrite', store => store.delete(overrideKey(original, targetLanguage)), 'overrides'); invalidate('overrides'); },
+    diagnostics: () => ({ ...diagnostics, hotEntries: factory.hot.entries.size, hotBytes: factory.hot.bytes }),
     async stats(targetLanguage = 'zh-CN') { const stores = await all(), [automatic, personal] = stores.map(values => values.filter(value => belongs(value, targetLanguage))); const editable = automatic.filter(value => value?.original).length;
       return { automatic: automatic.length, editable, legacy: automatic.length - editable, personal: personal.length };
     },
@@ -77,6 +95,7 @@ export function createCache(indexedDB, databaseName = 'cocos-translations') {
         tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error || new Error('个人译文导入失败'));
         for (const [original, translation] of entries) store.put({ original, translation, targetLanguage, updatedAt: Date.now() }, overrideKey(original, targetLanguage));
       });
+      invalidate('overrides');
       return entries.length;
     },
   };

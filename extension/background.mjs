@@ -1,50 +1,87 @@
-import { TranslationEngine } from './engine.mjs';
-import { createCache } from './cache.mjs';
+import { ProfileManager } from './profiles.mjs';
+import { validateItems } from './engine.mjs';
 import { apiPermissionPattern } from './core.mjs';
 import { createSiteAccess } from './site-access.mjs';
 import glossary from './glossary.mjs';
 const secureStorage = Promise.all(['local', 'session'].map(area => chrome.storage[area].setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' })));
-const sites = createSiteAccess(chrome), cache = createCache(indexedDB);
-const engine = new TranslationEngine({ storage: chrome.storage, cache, glossary,
+const sites = createSiteAccess(chrome);
+const profiles = new ProfileManager({ storage: chrome.storage, indexedDB, glossary,
   permitted: base => chrome.permissions.contains({ origins: [apiPermissionPattern(base)] }) });
 export function senderKind(sender, extensionId, enabledOrigins = []) {
   if (sender.id !== extensionId) return null;
   try {
     const url = new URL(sender.url || '');
-    if (url.protocol === 'chrome-extension:' && url.hostname === extensionId && ['/options.html', '/popup.html'].includes(url.pathname)) return 'settings';
+    if (url.protocol === 'chrome-extension:' && url.hostname === extensionId && ['/options.html', '/popup.html', '/update.html'].includes(url.pathname)) return 'settings';
     if (['https:', 'http:'].includes(url.protocol) && enabledOrigins.includes(url.origin) && sender.tab) return 'page';
   } catch { /* Invalid URLs have no authority. */ }
   return null;
 }
+async function pageProfile(tabId) { const scope = await sites.scope(tabId); return { scope, binding: await profiles.binding(scope) }; }
+const broadcast = () => sites.broadcastPreferences((_tabId, scope) => profiles.pageView(scope));
 async function handle(message, sender) {
-  await secureStorage; await sites.ready;
+  await secureStorage; await sites.ready; await profiles.ready;
   const kind = senderKind(sender, chrome.runtime.id, await sites.active());
   if (!kind || !message || typeof message !== 'object') throw new Error('消息来源不合法');
   const { action, payload } = message;
-  if (action === 'getPreferences') return engine.publicSettings();
-  if (action === 'setPreferences' && kind === 'settings') return engine.configure(payload, true);
+  let context;
+  const currentPage = async () => { if (!context) context = kind === 'page' ? { tabId: sender.tab.id, ...await pageProfile(sender.tab.id) } : await sites.context(); return context; };
+  const selectedProfile = async () => {
+    if (kind === 'page') return (await currentPage()).binding?.id;
+    if (typeof message.profileId === 'string') { profiles.require(message.profileId); return message.profileId; }
+    if (new URL(sender.url).pathname === '/popup.html') return (await profiles.binding((await currentPage()).scope))?.id;
+    return profiles.registry.editorId;
+  };
+  if (action === 'getPreferences') {
+    if (kind === 'page' || (new URL(sender.url).pathname === '/popup.html' && !message.profileId)) return profiles.pageView((await currentPage()).scope);
+    return profiles.view(await selectedProfile());
+  }
+  if (action === 'setPreferences' && kind === 'settings') {
+    const result = await profiles.configure(await selectedProfile(), payload, true); await broadcast(); return result;
+  }
   if (action === 'translate' && kind === 'page') {
+    validateItems(payload?.items);
+    const page = await currentPage();
+    if (!page.binding) return { items: (payload?.items || []).map(({ id, text }) => ({ id, text })), profileRequired: true, elapsedMs: 0 };
+    const engine = await profiles.get(page.binding.id), providerRevision = engine.providerRevision;
     const response = await engine.translate(payload?.items);
+    const live = await pageProfile(sender.tab.id);
+    if (live.scope !== page.scope || live.binding?.revision !== page.binding.revision || engine.providerRevision !== providerRevision || profiles.shared.paused) return {
+      items: payload.items.map(({ id, text }) => ({ id, text })), profileChanged: true, paused: profiles.shared.paused, elapsedMs: response.elapsedMs };
     return { ...response, items: response.items.map(({ errorMessage, ...item }) => item) };
   }
   if (action === 'openOptions' && kind === 'page') { await chrome.runtime.openOptionsPage(); return {}; }
   if (kind !== 'settings') throw new Error('此操作只能在扩展设置中执行');
-  if (action === 'getPageContext') return sites.context();
-  if (action === 'enableSites') return sites.enable(payload?.origins, payload?.tabId);
+  if (action === 'getProfiles') return profiles.list();
+  if (action === 'createProfile') return profiles.create(payload);
+  if (action === 'selectEditorProfile') return profiles.selectEditor(payload?.id);
+  if (action === 'renameProfile') { const result = await profiles.rename(await selectedProfile(), payload?.name); await broadcast(); return result; }
+  if (action === 'getPageContext') {
+    const page = await currentPage(), binding = await profiles.binding(page.scope); return { ...page, profileId: binding?.id || null };
+  }
+  if (action === 'bindPageProfile') {
+    const scope = await sites.scope(payload?.tabId);
+    if (!scope || scope !== payload?.scope) throw new Error('网页已变化，请重新打开扩展');
+    const result = await profiles.bind(scope, payload?.id || null); await broadcast(); return result;
+  }
+  if (action === 'enableSites') { const result = await sites.enable(payload?.origins, payload?.tabId); await broadcast(); return result; }
   if (action === 'disableSites') return sites.disable(payload?.origins, payload?.tabId);
-  if (action === 'getSettings') return engine.publicSettings(true);
-  if (action === 'setSettings') return engine.configure(payload);
+  const id = await selectedProfile();
+  if (!id) throw new Error('请先为当前网页选择 Profile');
+  if (action === 'getSettings') return profiles.view(id, true);
+  if (action === 'setSettings') {
+    const result = await profiles.configure(id, payload); await broadcast(); return result;
+  }
+  const engine = await profiles.get(id), cache = engine.cache, language = engine.settings.targetLanguage;
   if (action === 'test') return engine.translate([{ id: 'test', text: '「お父さん、大丈夫ですか？」' }], { fresh: true });
   if (action === 'probe') return engine.probe();
-  await engine.ready;
-  const language = engine.settings.targetLanguage;
-  if (action === 'getCacheStats') return cache.stats(language);
-  if (action === 'exportTranslations') return cache.exportFile(language);
-  if (action === 'importTranslations') { if ((payload?.targetLanguage || 'zh-CN') !== language) throw new Error('译文文件的语言与当前目标语言不同，请切换目标语言后再导入'); const imported = await cache.importFile(payload); await engine.invalidateTranslations(); return { imported }; }
+  if (action === 'getCacheStats') return { ...await cache.stats(language), targetLanguage: language, profileId: id, profileName: profiles.require(id).name };
+  if (action === 'exportTranslations') return { ...await cache.exportFile(language), profileId: id, profileName: profiles.require(id).name };
+  const invalidate = async () => { await profiles.invalidate(id); await broadcast(); };
+  if (action === 'importTranslations') { if ((payload?.targetLanguage || 'zh-CN') !== language) throw new Error('译文文件的语言与当前目标语言不同，请切换目标语言后再导入'); const imported = await cache.importFile(payload); await invalidate(); return { imported }; }
   if (action === 'getPersonalTranslation') { if (typeof payload?.original !== 'string' || !payload.original.trim()) throw new Error('请填写原文'); return { translation: await cache.getOverride(payload.original, language) || '' }; }
-  if (action === 'setPersonalTranslation') { if (typeof payload?.original !== 'string' || !payload.original.trim()) throw new Error('请填写原文'); await cache.importFile({ format: 'cocos-translations', version: 1, targetLanguage: language, translations: { [payload.original]: payload.translation } }); await engine.invalidateTranslations(); return {}; }
-  if (action === 'removePersonalTranslation') { if (typeof payload?.original !== 'string' || !payload.original.trim()) throw new Error('请填写原文'); await cache.removeOverride(payload.original, language); await engine.invalidateTranslations(); return {}; }
-  if (action === 'clearCache') { await cache.clear(); await engine.invalidateTranslations(); return {}; }
+  if (action === 'setPersonalTranslation') { if (typeof payload?.original !== 'string' || !payload.original.trim()) throw new Error('请填写原文'); await cache.importFile({ format: 'cocos-translations', version: 1, targetLanguage: language, translations: { [payload.original]: payload.translation } }); await invalidate(); return {}; }
+  if (action === 'removePersonalTranslation') { if (typeof payload?.original !== 'string' || !payload.original.trim()) throw new Error('请填写原文'); await cache.removeOverride(payload.original, language); await invalidate(); return {}; }
+  if (action === 'clearCache') { await profiles.invalidate(id); await cache.clear(); await broadcast(); return {}; }
   throw new Error('不支持的扩展操作');
 }
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

@@ -6,45 +6,72 @@
 [![Release](https://img.shields.io/github/v/release/HappyAny/cocos-web-translator)](https://github.com/HappyAny/cocos-web-translator/releases/latest)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
-支持 Cocos Web 文字翻译的 Chrome / Edge 浏览器扩展。在可访问的文字组件和兼容剧情播放器中显示译文，支持自选翻译服务、预翻译、对白参考与个人修订。
+支持 Cocos Web 文字翻译的 Chrome / Edge 浏览器扩展。在可访问的文字组件和兼容剧情播放器中显示译文，支持独立 Profile、自选翻译服务、额外 Prompt、预翻译与个人修订。
 
 **[下载浏览器插件](https://github.com/HappyAny/cocos-web-translator/releases/latest)** · [English](docs/README.en.md) · [配置说明](docs/settings.md) · [开发说明](CONTRIBUTING.md)
 
 ## 功能
 
 - 分别控制剧情文字、界面文字和系统字体。保持富文本标签，失败时保留原文。
+- 扩展弹窗一键暂停 / 恢复所有网页翻译，保留原来的剧情与界面开关。
 - MyMemory 免密钥试用，或使用 OpenAI 兼容 API；支持在线服务及本地模型。
 - 简体中文、繁体中文、英文、韩文、法文、德文、西班牙文；插件界面支持中文和 English。
 - 提前翻译 0–20 句，默认 2；0 只处理当前对白。
 - 可选角色名和对白历史参考，只保留最近 N 句，默认 10、可设 1–20。仅模型 API 使用，没有分钟限制。
-- 自动缓存与个人修订按目标语言隔离；支持 JSON 导出、编辑、导入和单句修订。
+- 自建、重命名 Profile；各自保存服务、密钥、目标语言、额外 Prompt、缓存与个人修订。
+- 小菜单切换当前网页的 Profile，记住每个网页的选择。未绑定网页需要手动新建或选择。
+- 自动缓存与个人修订按 Profile 和目标语言隔离；支持 JSON 导出、编辑、导入和单句修订。
+- 有上限的内存 LRU 热缓存、重复读合并和 SHA-256 键复用，减少重复查库及哈希计算。
 - 附加 Body JSON 与 DeepSeek / Qwen / vLLM 关闭思考预设。
 - 按网页授权启用，扩展后台请求翻译服务；无需运行本机中转程序。
-- 提供同目录更新工具，不必为每个版本安装一份扩展。
+- 把 Release ZIP 拖入更新页，记住授权的原目录，保留设置与缓存；提供独立离线更新页面。
 
 ## 安装与开始使用
 
 1. 在 [Releases](https://github.com/HappyAny/cocos-web-translator/releases/latest) 下载 `cocos-web-translator-v*.zip`，完整解压到固定目录。
 2. 打开 Chrome / Edge 的扩展管理页，开启开发者模式，点击“加载解压缩的扩展”，选择解压后的 **extension** 文件夹。
-3. 打开 Cocos Web 页面，点击扩展图标。选择当前网页及嵌入内容的域名，点击“启用所选网页”，确认浏览器授权。
-4. 从弹窗打开设置，选择翻译服务和目标语言，保存设置并试译一句。
-5. 开启需要的剧情或界面翻译。已授权页面会在后续访问时自动接入；必要时刷新网页。
+3. 从扩展小菜单打开设置，在 **翻译 Profile** 中新建 Profile，配置翻译服务、目标语言和额外 Prompt，保存并试译一句。
+4. 打开 Cocos Web 页面，点击扩展图标，在 **当前网页的 Profile** 下拉框中选择要运行的 Profile。
+5. 选择当前网页及嵌入内容的域名，点击“启用所选网页”，确认浏览器授权，再开启需要的剧情或界面翻译。必要时刷新网页。
 
 页面使用跨域嵌入内容时，需要同时启用承载文字的嵌入域名。没有可访问 Cocos 文字接口的网页不会获得文字翻译效果。
 
+新网页不会自动使用已有 Profile。绑定按最外层网页的域名和路径记忆，不包含查询参数或片段；小菜单显示实际绑定路径。不同内容共用同一路径时，请在小菜单手动切换 Profile。
+
+## Profile、术语与缓存
+
+设置页的 Profile 下拉框用于选择编辑对象，小菜单下拉框用于选择当前网页实际运行的 Profile。一个 Profile 可以绑定多个网页；它们共享该 Profile 的设置和译文。需要独立缓存时，为它们分别新建 Profile。
+
+额外 Prompt 仅用于模型 API，例如 `アリス = 爱丽丝；ホーム = 主界面；对白使用自然口语`。它会加入系统提示词，适用于名称、菜单术语和风格说明。修改 Prompt 会使用新的自动缓存键；个人修订始终优先。新 Profile 缓存为空，可选复制当前已保存的设置，密钥和缓存需另行设置。
+
+长期缓存位于浏览器 IndexedDB，使用 SHA-256 键查找；不是直接写在扩展代码目录里的文本文件。热缓存使用 JavaScript Map 和 LRU 淘汰，所有 Profile 合计最多 2000 条、约 4 MiB 数据预算；另有约 2 MiB 的缓存键预算。热缓存只减少重复读取，自动译文仍持久保存在 IndexedDB。导出 JSON 才会生成可手动修改的文件，导出和导入均针对设置页当前 Profile 及其目标语言。
+
 ## 更新已有扩展
 
-完整解压新版本，运行外层 **update.cmd**，选择原来已经加载的扩展文件夹。工具校验公开文件哈希、备份原代码并覆盖原目录，然后在扩展管理页重新加载并刷新网页。macOS / Linux 可手动把新 `extension` 内的内容覆盖到原扩展目录。
+点击扩展弹窗的 **更新插件**：
 
-始终使用原目录，可以沿用扩展身份、配置和已保存的密钥。新版会迁移兼容的旧缓存；个人修订不会被清空自动缓存操作删除。旧 JSON 导出文件可继续导入。更新后首次使用网页授权功能时，在弹窗启用需要的域名。
+1. 把新版 Release ZIP 拖进更新页，不需要解压。
+2. 首次选择原来已经加载到浏览器的 **extension** 文件夹，并允许读写。后续更新会记住该目录，浏览器可能要求再次确认授权。
+3. 点击 **更新原插件**。程序先校验 ZIP、CRC 和文件哈希，再备份原代码，最后覆盖原目录。
+4. 点击 **重新加载已更新的插件**，并刷新 Cocos Web 页面。
 
-设置页也提供“重新加载已更新的扩展”按钮，需要先覆盖文件。解压加载的扩展采用浏览器的重新加载流程。[Chrome 官方说明](https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world)
+旧版没有更新入口时，在 [Releases](https://github.com/HappyAny/cocos-web-translator/releases/latest) 下载 **cocos-web-translator-updater.html**，用 Edge / Chrome 打开，把同一 Release 的 ZIP 拖进去即可。写入完成后，在扩展管理页重新加载原插件。ZIP 内的外层 **update.html** 也是这份独立更新页面。全程不需要本机服务。
+
+更新继续使用原目录和原扩展身份，保留设置、已选择持久保存的密钥、缓存及个人修订。请保留原插件，选择它实际加载的目录。会话密钥遵循浏览器的重载规则；未持久保存的密钥可能需要重填。ZIP 校验失败不会写入；写入失败会尝试还原，原代码备份位于原目录的 `.cocos-update-backups/`。
+
+现有设置、密钥、兼容缓存和个人修订保留在 **默认 Profile（原设置与缓存）**。升级后，请在网页小菜单为各网页选择默认或新 Profile，再启用需要的域名。旧 JSON 导出文件可继续导入当前 Profile。清空自动缓存只影响当前 Profile，不会删除个人修订。
+
+Windows 仍可运行外层 **update.cmd**，手动覆盖也需使用原目录并重新加载。[目录授权机制](https://developer.chrome.com/docs/capabilities/web-apis/file-system-access) · [浏览器重载说明](https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world)
+
+## 暂停与恢复
+
+点击浏览器扩展图标，在小菜单点击 **暂停翻译**；再次点击 **恢复翻译**。暂停状态会保存，对所有已启用网页生效，停止剧情、界面和预翻译请求。原来的开关不会改变，恢复后按原设置继续翻译。设置页的手动试译仍可使用。
 
 ## 支持范围
 
 当前文字组件接入基于可访问的 `cc.Label`、`cc.RichText` 和 Cocos 场景接口；剧情接入通过兼容的指令播放接口完成。不同 Cocos 版本或自定义播放器可能需要新增适配。图片内文字、聊天和输入框暂不处理。
 
-游戏源文字目前按日文翻译。历史仅记录实际显示的对白；未播放的预翻译内容不进入参考。新剧情、刷新、关闭历史开关或切换目标语言会清空历史，历史不持久保存。
+游戏源文字目前按日文翻译。历史仅记录实际显示的对白；未播放的预翻译内容不进入参考。新剧情、刷新、关闭历史开关、切换目标语言或 Profile 会清空历史，历史不持久保存。
 
 ## 开发与构建
 
@@ -57,7 +84,7 @@ npm test
 npm run build
 ```
 
-构建结果位于 `dist/`：浏览器插件 ZIP、`SHA256SUMS.txt` 与发布文件清单。只打包明确列出的公开文件，不包含个人设置、缓存、测试数据或开发依赖。Windows 的更新测试还需要 Python 3 和 PowerShell；其他平台仍会执行核心、存储、网页权限和运行时检查。
+构建结果位于 `dist/`：浏览器插件 ZIP、独立更新 HTML、`SHA256SUMS.txt` 与发布文件清单。只打包明确列出的公开文件，不包含个人设置、缓存、测试数据或开发依赖。Windows 的更新测试还需要 Python 3 和 PowerShell；其他平台仍会执行核心、存储、网页权限、拖放更新和运行时检查。
 
 ```text
 extension/          浏览器扩展源码

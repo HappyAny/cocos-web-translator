@@ -162,6 +162,23 @@ for (const game of ['standard', 'extended']) {
   api.uninstall();
   results.push({ game, case: 'history records displayed dialogue with original speaker, excludes future lines, keeps the latest count after a day pause, resets per scene and restores the setter', passed: true });
 }
+const profileCalls = [], profileRuntime = gameHarness('standard', async (_url, options) => {
+  const items = JSON.parse(options.body).items; profileCalls.push(items);
+  return { ok: true, json: async () => ({ items: items.map(item => ({ id: item.id, text: item.text.replace('大丈夫ですか', '你没事吧') })) }) };
+});
+const profileApi = profileRuntime.context.__CocosWebTranslator;
+profileApi.applyPreferences({ profileId: 'first', providerSignature: 'first:signature', revision: 1, storyEnabled: true, historyEnabled: true });
+profileRuntime.manager.update(profileRuntime.root, 1 / 60); await tick(); profileRuntime.manager.update(profileRuntime.root, 1 / 60);
+assert.equal(profileApi.inspect().historyEntries, 1); assert(profileRuntime.message._arguments[1].includes('你没事吧'));
+profileApi.applyPreferences({ profileId: 'second', providerSignature: 'second:signature', revision: 2, storyEnabled: true });
+assert.equal(profileApi.inspect().historyEntries, 0); assert(profileRuntime.message._arguments[1].includes('大丈夫ですか'));
+profileApi.applyPreferences({ profileId: null, profileRequired: true, providerSignature: 'unbound', revision: 3 });
+assert(!profileApi.config.storyEnabled && !profileApi.config.uiEnabled);
+const beforeUnbound = profileCalls.length; profileRuntime.manager.update(profileRuntime.root, 1 / 60); await tick(); assert.equal(profileCalls.length, beforeUnbound);
+profileApi.applyPreferences({ profileId: 'first', providerSignature: 'first:signature', revision: 2, storyEnabled: true }); assert.equal(profileApi.config.profileId, null);
+profileApi.uninstall();
+results.push({ case: 'profile switch clears dialogue history and translations; unbound profiles stop requests; stale preference reads cannot restore an old profile', passed: true });
+
 writeFileSync(new URL('../.test-output/runtime.json', import.meta.url), JSON.stringify({
   passed: results.length, total: results.length, results,
   sourceBoundary: 'Synthetic compatible Cocos command interfaces and views.',

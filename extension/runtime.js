@@ -4,12 +4,12 @@
   if (global[KEY]) global[KEY].uninstall();
   const config = Object.assign({
     endpoint: '', lookahead: 2, timeoutMs: 32000,
-    translateNames: true, storyEnabled: true, uiEnabled: false,
+    translateNames: true, storyEnabled: true, uiEnabled: false, paused: false,
     systemFont: true, syncSettings: true, uiScanMs: 1000, transport: 'extension',
     historyEnabled: false, historyMaxEntries: 10, targetLanguage: 'zh-CN',
   }, global.COCOS_TRANSLATOR_CONFIG || {});
   const activeSessions = new Set();
-  const stats = { translated: 0, failed: 0, waiting: 0, attached: false, paused: false,
+  const stats = { translated: 0, failed: 0, waiting: 0, attached: false, paused: !!config.paused,
     uiTranslated: 0, uiFailed: 0, uiDetected: 0, uiScanned: 0 };
   const uiBindings = new Map();
   const uiKanji = new Set(['開始','終了','設定','確認','決定','選択','変更','保存','取消','削除','購入','売却','編成','強化','進化','覚醒','装備','所持','詳細','報酬','受取','交換','挑戦','出撃','戦闘','勝利','敗北','撤退','履歴','表示','非表示','音量','再生','停止','倍速','既読','未読','選択肢','会話','全選択','未選択','日付','名前','一括受取']);
@@ -17,9 +17,9 @@
   let dialogueHistory = [];
   let manager, constants, nameType, originalUpdate, timer, currentSession, stopped = false;
   let settingsTimer, uiTimer, uiController, uiBusy = false, statusMessage = '等待 Cocos 剧情模块…';
-  let providerLabel = 'MyMemory', remainingBudget = null, providerSignature;
+  let providerLabel = 'MyMemory', remainingBudget = null, providerSignature, preferenceRevision = 0;
   const serviceRoot = config.endpoint.replace(/\/translate\/?$/, '');
-  const api = { version: '0.6.1', stats, config, uninstall, pause, resume, setEnabled, scanUi,
+  const api = { version: '0.8.0', stats, config, uninstall, pause, resume, setEnabled, scanUi, applyPreferences,
     inspect: () => ({ ...stats, status: statusMessage, provider: providerLabel, remainingBudget, historyEntries: dialogueHistory.length }) };
   const pendingExtension = new Map();
   let rpcCounter = 0;
@@ -62,6 +62,9 @@
   }
 
   function applyPreferences(prefs) {
+    if (Number.isInteger(prefs.revision) && prefs.revision < preferenceRevision) return;
+    if (Number.isInteger(prefs.revision)) preferenceRevision = prefs.revision;
+    if (Object.prototype.hasOwnProperty.call(prefs, 'profileId') && prefs.profileId !== config.profileId) { dialogueHistory = []; config.profileId = prefs.profileId; }
     const priorStory = config.storyEnabled;
     if (prefs.providerSignature && providerSignature && prefs.providerSignature !== providerSignature) {
       restoreArguments();
@@ -86,6 +89,7 @@
     for (const key of ['storyEnabled', 'uiEnabled', 'systemFont']) {
       if (typeof prefs[key] === 'boolean') config[key] = prefs[key];
     }
+    if (prefs.profileRequired) { config.storyEnabled = false; config.uiEnabled = false; }
     if (!config.storyEnabled) {
       restoreArguments();
       if (priorStory) for (const s of activeSessions) {
@@ -98,6 +102,7 @@
       for (const s of activeSessions) for (const item of s.items) if (item.status === 'failed') item.status = 'new';
     }
     if (!config.uiEnabled) restoreUi();
+    if (typeof prefs.paused === 'boolean' && prefs.paused !== stats.paused) { prefs.paused ? pause() : resume(); }
     if (Array.isArray(prefs.uiGlossaryKeys)) { uiKanji.clear(); for (const key of [...defaultUiKanji, ...prefs.uiGlossaryKeys]) uiKanji.add(key); }
     if (Array.isArray(prefs.personalTextKeys)) { personalTextKeys.clear(); for (const key of prefs.personalTextKeys) personalTextKeys.add(key); }
     if (prefs.provider) providerLabel = prefs.provider === 'mymemory' ? 'MyMemory' : '模型 API';
@@ -140,6 +145,15 @@
 
   function pause() {
     stats.paused = true;
+    config.paused = true;
+    if (uiController) uiController.abort();
+    for (const s of activeSessions) {
+      s.generation++;
+      if (s.controller) s.controller.abort();
+      s.busy = false; s.controller = null;
+      for (const item of s.items) if (item.status === 'pending') item.status = 'new';
+    }
+    stats.waiting = 0;
     restoreArguments();
     restoreUi();
     updateStatus('翻译已暂停，显示原文');
@@ -147,6 +161,7 @@
 
   function resume() {
     stats.paused = false;
+    config.paused = false;
     for (const s of activeSessions) {
       for (const item of s.items) {
         if (config.storyEnabled && item.status === 'done') item.command._arguments[item.index] = item.translated;
@@ -252,7 +267,7 @@
     const timeout = global.setTimeout(() => controller.abort(), config.timeoutMs);
     serviceFetch(config.endpoint, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clientVersion: '0.6.1', items: batch.map(i => ({ id: i.id, text: i.original, kind: 'story',
+      body: JSON.stringify({ clientVersion: '0.8.0', items: batch.map(i => ({ id: i.id, text: i.original, kind: 'story',
         ...(config.historyEnabled ? { speaker: i.speaker, history: recentHistory() } : {}) })) }),
       signal: controller.signal, credentials: 'omit',
     }).then(response => {
@@ -441,7 +456,7 @@
     try {
       const response = await serviceFetch(config.endpoint, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'omit', signal: controller.signal,
-        body: JSON.stringify({ clientVersion: '0.6.1', items: pending.map(item => ({ id: item.id, text: item.binding.original, kind: 'ui' })) }),
+        body: JSON.stringify({ clientVersion: '0.8.0', items: pending.map(item => ({ id: item.id, text: item.binding.original, kind: 'ui' })) }),
       });
       if (!response.ok) throw new Error('UI translation unavailable');
       const body = await response.json();

@@ -13,7 +13,7 @@ assert(!manifest.content_scripts); assert(!manifest.key);
 for (const name of extensionFiles) await fs.access(new URL(name, extension));
 for (const file of [manifest.background.service_worker, manifest.options_ui.page, manifest.action.default_popup, ...Object.values(manifest.icons), ...contentScripts(['https://canvas.example.test']).flatMap(script => script.js)]) assert(extensionFiles.includes(file), file);
 for (const [key, message] of Object.entries(messages)) assert(message['zh-CN'] && message.en, key);
-for (const name of ['options.html', 'popup.html']) {
+for (const name of ['options.html', 'popup.html', 'update.html']) {
   const html = await fs.readFile(new URL(name, extension), 'utf8');
   assert(!/<script(?![^>]*src=)[^>]*>/.test(html));
   for (const match of html.matchAll(/data-i18n(?:-placeholder|-label)?="([^"]+)"/g)) assert(Object.hasOwn(messages, match[1]), match[1]);
