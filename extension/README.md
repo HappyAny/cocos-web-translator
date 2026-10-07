@@ -1,8 +1,8 @@
 # Cocos Web Translator · Cocos翻译机
 
-Load this folder as an unpacked Chrome / Edge extension. Configure the shared provider, key, target language, pretranslation, and dialogue context once. Create a profile below and add an optional prompt. Open a Cocos Web page, select the profile in the popup, authorize the page and relevant embedded origins, and enable translation.
+Load this folder as an unpacked Chrome / Edge extension. Configure the shared provider, key, target language, pretranslation, and dialogue context once. Create a profile below and add an optional prompt. Open a Cocos Web page and choose the profile in the popup. Confirm browser access when prompted; checked page and embedded origins are enabled automatically. Dialogue and interface switches are directly below the profile.
 
-在扩展管理页加载本文件夹。设置页上方配置共用翻译服务与语言，下方新建 Profile 并设置额外 Prompt。在 Cocos Web 网页的小菜单选择运行 Profile，启用当前网页及需要的嵌入域名。使用期间请保留本文件夹，开发者模式不会自动复制它；下载的 ZIP 可以删除。
+在扩展管理页加载本文件夹。设置页上方配置共用翻译服务与语言，下方新建 Profile 并设置额外 Prompt。在 Cocos Web 网页的小菜单选择运行 Profile，首次使用确认浏览器授权后，勾选的当前网页及嵌入域名会自动启用。Profile 下方直接控制剧情与界面翻译。使用期间请保留本文件夹，开发者模式不会自动复制它；下载的 ZIP 可以删除。
 
 Click **Update extension** in the popup and drop the new Release ZIP. Select your original loaded extension folder on first use, allow read/write access, and update. The folder is remembered, public files are verified and backed up, and write failures trigger rollback. Reload the existing extension and refresh the page. Older installations can use the outer **update.html** or the standalone updater HTML from Releases. The Windows `update.cmd` is also available. Keep the original folder and extension installed to retain settings and cache.
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.2
+
+- Enable checked page and embedded origins when choosing a profile, requesting browser access within the selection gesture.
+- Preserve the previous binding when access is denied, and retain global pause and text switches during selection.
+- Move dialogue and interface translation switches directly below the profile selector; keep origin controls collapsed.
+- Normalize escaped newline markers in provider responses, existing cache reads, and personal-translation rendering without rewriting personal edits.
+- Verify authorization, immediate injection, navigation changes, and newline rendering with integrated popup/background and translation checks.
+
 ## 0.9.1
 
 - Collapse the popup's page-origin authorization controls by default while retaining profile selection and translation switches.

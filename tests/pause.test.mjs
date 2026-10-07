@@ -58,7 +58,7 @@ globalThis.chrome = { runtime: { getManifest: () => ({ version: '0.9.0' }), getU
   if (action === 'getPageContext') return { ok: true, data: { tabId: 1, scope: 'https://canvas.example.test/view', profileId: popupPrefs.profileId, origins: [{ origin: 'https://canvas.example.test', enabled: true }] } };
   if (action === 'getProfiles') return { ok: true, data: { profiles: [{ id: 'default', name: 'Default', isDefault: true }, { id: 'second', name: 'Strategy' }], editorId: 'default' } };
   if (action === 'setPreferences') popupPrefs = { ...popupPrefs, ...payload };
-  if (action === 'bindPageProfile') { assert.equal(payload.scope, 'https://canvas.example.test/view'); popupPrefs = { ...popupPrefs, profileId: payload.id || null, profileRequired: !payload.id, storyEnabled: payload.id === 'default', uiEnabled: !!payload.id }; }
+  if (action === 'bindPageProfile') { assert.equal(payload.scope, 'https://canvas.example.test/view'); popupPrefs = { ...popupPrefs, profileId: payload.id || null, profileRequired: !payload.id }; }
   return { ok: true, data: { ...popupPrefs } };
 } }, tabs: { create: async value => { opened = value; } } };
 await import('../extension/popup.js'); await new Promise(resolve => setImmediate(resolve));
@@ -70,10 +70,10 @@ assert.equal(elements.get('pauseToggle').attributes['aria-pressed'], 'true');
 await elements.get('pauseToggle').listeners.click(); assert(!popupPrefs.paused); assert.equal(elements.get('pauseToggle').textContent, 'Pause translation');
 await elements.get('update').listeners.click(); assert.equal(opened.url, 'chrome-extension://test-extension/update.html');
 elements.get('profileSelect').value = 'second'; await elements.get('profileSelect').listeners.change();
-assert.equal(popupPrefs.profileId, 'second'); assert.equal(elements.get('status').textContent, 'Profile saved for this page: Strategy');
+assert.equal(popupPrefs.profileId, 'second'); assert(elements.get('status').textContent.includes('Profile saved for this page: Strategy')); assert(elements.get('status').textContent.includes('Page enabled'));
 await elements.get('settings').listeners.click(); assert.equal(opened.url, 'chrome-extension://test-extension/options.html?profile=second');
 elements.get('profileSelect').value = ''; await elements.get('profileSelect').listeners.change();
 assert.equal(popupPrefs.profileId, null); assert(elements.get('storyEnabled').disabled && elements.get('uiEnabled').disabled);
-assert.equal(elements.get('profileHint').textContent, 'This page has no profile. Create or choose one before translating.');
+assert(elements.get('profileHint').textContent.includes('Choose a profile to enable this page'));
 await elements.get('createProfile').listeners.click(); assert.equal(opened.url, 'chrome-extension://test-extension/options.html?new=1');
 console.log('Pause: popup controls, persisted state, preserved switches, cancelled active/queued requests, stale dialogue safety, and resume checks passed.');

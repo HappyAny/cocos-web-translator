@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { gameHarness } from './fixtures/cocos.mjs';
+import { area } from './fixtures/chrome.mjs';
+import { TranslationEngine } from '../extension/engine.mjs';
 const results = [];
 const tick = () => new Promise(resolve => setTimeout(resolve, 5));
 const prefetchCalls=[];
@@ -178,6 +180,26 @@ const beforeUnbound = profileCalls.length; profileRuntime.manager.update(profile
 profileApi.applyPreferences({ profileId: 'first', providerSignature: 'first:signature', revision: 2, storyEnabled: true }); assert.equal(profileApi.config.profileId, null);
 profileApi.uninstall();
 results.push({ case: 'profile switch clears dialogue history and translations; unbound profiles stop requests; stale preference reads cannot restore an old profile', passed: true });
+
+for (const game of ['standard', 'extended']) {
+  const values = new Map(), engine = new TranslationEngine({
+    storage: { local: area(), session: area() }, cache: { get: async key => values.get(key), put: async (key, text) => values.set(key, text) },
+    glossary: {}, permitted: async () => true,
+    fetchImpl: async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: '第一行\\n第二行¥n第三行' } }] }) }),
+  });
+  await engine.configure({ provider: 'openai', apiBase: 'https://model.invalid/v1', model: 'TEST_MODEL' });
+  const h = gameHarness(game, async (_url, options) => ({ ok: true, json: async () => engine.translate(JSON.parse(options.body).items) }));
+  const original = h.message._arguments[1], api = h.context.__CocosWebTranslator;
+  try {
+    h.manager.update(h.root, 1 / 60);
+    for (let i = 0; i < 100 && !api.stats.translated; i++) await new Promise(resolve => setImmediate(resolve));
+    assert.equal(api.stats.failed, 0); assert.equal(api.stats.translated, 1);
+    h.manager.update(h.root, 1 / 60);
+    assert.equal(h.displayed[0].text, '<size=30>第一行\n第二行\n第三行</size>');
+  } finally { api.uninstall(); }
+  assert.equal(h.message._arguments[1], original);
+  results.push({ game, case: 'provider newline escapes pass through the engine and dialogue player as actual line breaks, with tags and original restoration intact', passed: true });
+}
 
 writeFileSync(new URL('../.test-output/runtime.json', import.meta.url), JSON.stringify({
   passed: results.length, total: results.length, results,

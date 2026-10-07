@@ -10,9 +10,9 @@ A Chrome / Edge extension for translating Cocos Web text. Translate accessible t
 2. Enable Developer mode in your browser's extension manager. Load the extracted **extension** folder as an unpacked extension.
 3. Open settings from the popup and configure the shared provider and translation options once. Create a profile below, add an optional prompt, save, and test it.
 4. Open a Cocos Web page and select the profile in the extension popup.
-5. Select the page and relevant embedded origins, enable them, and confirm browser authorization. Turn on dialogue and/or interface translation. Refresh if needed.
+5. Confirm browser access when prompted. Choosing the profile automatically enables the checked page and embedded origins. Turn on dialogue and/or interface translation directly below the profile. Refresh if needed.
 
-Authorized sites are remembered. Embedded content on another origin needs its own authorization.
+Authorized sites are remembered. Embedded content on another origin needs its own authorization. The collapsed Current page section lets you adjust checked origins or enable/disable them separately. Profile selection keeps your global pause and text switches.
 
 Unknown pages never select an existing profile automatically. Bindings use the top page’s origin and path, excluding query strings and fragments. The popup shows the binding path. Switch manually when different content shares a path.
 
@@ -28,7 +28,7 @@ Developer mode reads the selected unpacked directory directly. Keep that directo
 - Optional speaker and dialogue context: latest 1–20 displayed lines, default 10, with no time expiry. Model APIs only; unplayed lines are excluded.
 - One shared provider, API key, target language, pretranslation, dialogue context, and text switches for all profiles.
 - Named profiles with separate additional prompts, caches, and personal edits.
-- Quick profile selection for the current page in the popup; other pages keep their own bindings.
+- Choosing a profile enables the current page after browser authorization; other pages keep their own bindings.
 - The popup’s page-origin controls start collapsed. The shared provider section includes a test-translation button.
 - Per-profile and per-language cache and personal edits, JSON export/import, and single-line editing.
 - Bounded Map-based LRU hot caches, joined concurrent reads, and memoized SHA-256 cache keys.

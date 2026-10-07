@@ -1,6 +1,6 @@
 {
   "name": "cocos-web-translator",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "private": true,
   "description": "A browser extension for translating Cocos Web text.",
   "type": "module",

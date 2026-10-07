@@ -23,6 +23,11 @@ export function decodeEntities(text) {
     return { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00a0' }[part.toLowerCase()] || whole;
   });
 }
+export function normalizeLineBreaks(text) {
+  // Decode newline escapes only; keep file paths and unrelated escapes intact.
+  return text.replace(/<[^>]*>|[A-Za-z]:\\[^\s<>"]+|\\\\[^\s<>"]+|(?:\\|[¥￥])(?:r(?:\\|[¥￥])n|n|r)|\r\n?/g,
+    token => token.startsWith('<') || /^(?:[A-Za-z]:\\|\\\\)/.test(token) ? token : '\n');
+}
 export function chunks(text, limit = 450) {
   const result = []; let chunk = '', size = 0;
   for (const char of text) { const length = new TextEncoder().encode(char).length; if (size + length > limit) { result.push(chunk); chunk = ''; size = 0; } chunk += char; size += length; }
@@ -201,7 +206,7 @@ export class TranslationEngine {
       finally { clearTimeout(timer); this.pageRequests.delete(controller); }
       if (epoch !== this.translationEpoch) throw failure('TranslationChanged', '翻译配置已变化，请重试');
       if (typeof translated !== 'string' || !translated.trim() || translated.length > text.length * 5 + 200 || /<\/?think\b/i.test(translated)) throw failure('InvalidTranslation', '模型没有返回可用的译文，请检查思考参数和输出长度');
-      translated = translated.trim().replace(/</g, '＜').replace(/>/g, '＞');
+      translated = normalizeLineBreaks(translated.trim()).replace(/</g, '＜').replace(/>/g, '＞');
       try { await this.cache.put(key, translated, text, language); } catch { throw failure('CacheError', '浏览器无法保存翻译缓存，请重新加载扩展后再试'); }
       return { text: translated, cached: false };
     });
@@ -209,7 +214,7 @@ export class TranslationEngine {
     try { return await work; } finally { this.inflight.delete(pendingKey); }
   }
   async richText(text, settings, token, fresh = false, reference = {}) {
-    const personal = fresh ? undefined : await this.personal(text, settings.targetLanguage); if (typeof personal === 'string') return { text: personal, cached: true, personal: true };
+    const personal = fresh ? undefined : await this.personal(text, settings.targetLanguage); if (typeof personal === 'string') return { text: normalizeLineBreaks(personal), cached: true, personal: true };
     const output = []; let cached = true, personalUsed = false;
     for (const part of text.split(/(<[^>]*>)/g)) {
       const trimmed = part.trim();
@@ -222,7 +227,7 @@ export class TranslationEngine {
         else for (const chunk of chunks(part)) { const result = await this.plain(chunk, settings, token, fresh, reference); output.push(result.text); cached &&= result.cached; personalUsed ||= !!result.personal; }
       }
     }
-    return { text: output.join(''), cached, ...(personalUsed ? { personal: true } : {}) };
+    return { text: normalizeLineBreaks(output.join('')), cached, ...(personalUsed ? { personal: true } : {}) };
   }
   async translate(items, { fresh = false } = {}) {
     await this.ready;

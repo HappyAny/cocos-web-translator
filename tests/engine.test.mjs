@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import vm from 'node:vm';
 import { DEFAULTS, validateSettings, validateExtraBody, buildModelBody, normalizeHistory } from '../extension/core.mjs';
 import { messages, localizeError, t } from '../extension/i18n.mjs';
-import { TranslationEngine, chunks } from '../extension/engine.mjs';
+import { TranslationEngine, chunks, normalizeLineBreaks } from '../extension/engine.mjs';
 import { validateTranslationFile } from '../extension/cache.mjs';
 const results = [];
 const check = async (name, run) => { await run(); results.push({ case: name, passed: true }); };
@@ -95,6 +95,33 @@ await check('RichText keeps markup, numeric/Chinese/ruby strings; UTF-8 chunks d
   const item = (await f.engine.translate([{ id: '1', text: '<size=30>これはテストです。</size>' }])).items[0]; assert.equal(item.text, '<size=30>测试中文</size>');
   for (const text of ['中文 123', '名前|なまえ']) assert.equal((await f.engine.translate([{ id: '2', text }])).items[0].text, text);
   const text = 'あ'.repeat(400) + '😀'; const parts = chunks(text); assert.equal(parts.join(''), text); assert(parts.every(part => Buffer.byteLength(part) <= 450));
+});
+await check('Literal newline escapes render as line breaks without decoding other escapes or paths', () => {
+  assert.equal(normalizeLineBreaks('第一行\\n第二行\\r\\n第三行¥n第四行￥n第五行\r\n第六行'), '第一行\n第二行\n第三行\n第四行\n第五行\n第六行');
+  const preserved = 'C:\\new\\notes.txt \\\\network\\readme.txt \\t \\u4e00 1500¥ <b>文字</b> "引号"';
+  assert.equal(normalizeLineBreaks(preserved), preserved);
+  const tag = '<font value="literal\\nattribute\r\n">文字</font>';
+  assert.equal(normalizeLineBreaks(tag), tag, 'Never alter original rich-text attributes');
+});
+await check('Fresh and cached model translations normalize line breaks while preserving rich-text tags', async () => {
+  let calls = 0;
+  const f = fixture({ fetchImpl: async () => { calls++; return { ok: true, json: async () => ({ choices: [{ message: { content: '第一行\\n第二行¥n第三行' } }] }) }; } });
+  await f.engine.configure(profile);
+  const items = [{ id: 'line', text: '<size=30>これは複数行のテストです。</size>' }], expected = '<size=30>第一行\n第二行\n第三行</size>';
+  const fresh = await f.engine.translate(items); assert.equal(fresh.items[0].text, expected);
+  assert.equal([...f.values.values()][0], '第一行\n第二行\n第三行', 'New automatic cache records store actual line breaks');
+  for (const key of f.values.keys()) f.values.set(key, '第一行\\n第二行￥n第三行');
+  const cached = await f.engine.translate(items);
+  assert.equal(cached.items[0].text, expected); assert(cached.items[0].cached); assert.equal(calls, 1, 'Old escaped cache entries render correctly without another request');
+});
+await check('Free-provider entities and personal edits use the same newline rendering', async () => {
+  const f = fixture({ fetchImpl: async () => ({ ok: true, json: async () => ({ responseStatus: 200, responseData: { translatedText: '第一行&#92;n第二行' } }) }) });
+  const items = [{ id: 'line', text: 'これはテストです。' }];
+  assert.equal((await f.engine.translate(items)).items[0].text, '第一行\n第二行');
+  f.cache.getOverride = async () => '个人第一行\\n个人第二行';
+  const edited = await f.engine.translate(items);
+  assert(edited.items[0].personal); assert.equal(edited.items[0].text, '个人第一行\n个人第二行');
+  assert.equal(await f.cache.getOverride(), '个人第一行\\n个人第二行', 'Rendering must not rewrite saved personal edits');
 });
 await check('Network limit is two; duplicate texts share a request', async () => {
   let active = 0, peak = 0, calls = 0;
