@@ -33,6 +33,7 @@ async function waitUntil(check) { for (let i = 0; i < 100 && !check(); i++) awai
 await waitUntil(() => $('profileSelect').value === 'default' && $('profileName').focused);
 assert.equal($('profileSelect').children[0].textContent, 'Default profile (existing cache and edits)');
 assert.equal($('profileName').value, '');
+assert.equal($('settingsVersion').textContent, 'COCOS TRANSLATOR · v0.9.0', 'Show the running manifest version even when source files have a newer package version');
 $('profileName').value = 'Adventure'; await $('createProfile').click();
 const adventure = $('profileSelect').value; assert.notEqual(adventure, 'default');
 assert($('profileStatus').textContent.includes('empty cache'));
@@ -46,6 +47,13 @@ assert.equal(saved.data.customPrompt, $('customPrompt').value); assert.equal(sav
 assert.equal($('apiKey').value, ''); assert($('bodyPreview').textContent.includes('Main menu'));
 await $('test').click(); assert.equal(completions.length, 1); assert(completions[0].messages[0].content.includes('Main menu'));
 assert($('status').textContent.includes('succeeded')); assert($('testResult').textContent.includes('Translated test'));
+$('customPrompt').value = 'メニュー = Draft only.';
+await $('test').click(); assert.equal(completions.length, 2); assert(completions[1].messages[0].content.includes('Main menu'));
+assert.equal($('customPrompt').value, 'メニュー = Draft only.', 'The shared-service test must retain an unsaved profile prompt');
+assert.equal((await f.chrome.runtime.sendMessage({ action: 'getSettings', profileId: adventure })).data.customPrompt, saved.data.customPrompt);
+await $('testProfile').click(); assert.equal(completions.length, 3); assert(completions[2].messages[0].content.includes('Draft only'));
+assert.equal((await f.chrome.runtime.sendMessage({ action: 'getSettings', profileId: adventure })).data.customPrompt, 'メニュー = Draft only.');
+$('customPrompt').value = saved.data.customPrompt; await $('profileForm').listeners.submit({ preventDefault() {} });
 $('personalOriginal').value = 'アリス'; $('personalTranslation').value = 'Lady Alice'; await $('savePersonal').click();
 assert.equal((await f.chrome.runtime.sendMessage({ action: 'getPersonalTranslation', profileId: adventure, payload: { original: 'アリス' } })).data.translation, 'Lady Alice');
 $('profileSelect').value = 'default'; await $('profileSelect').listeners.change();

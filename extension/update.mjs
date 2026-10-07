@@ -10,6 +10,8 @@ function renderStatus() { if (lastStatus) { $('updateStatus').textContent = t(la
 function showError(error) { lastStatus = null; $('updateStatus').textContent = localizeError(error.message) + (error.backupName ? '\n' + t('backupLocation', { path: error.backupName }) : ''); $('updateStatus').className = 'error'; }
 function refresh() {
   document.body.classList.toggle('busy', busy);
+  $('runningVersionRow').hidden = !installedVersion;
+  $('runningVersion').textContent = installedVersion ? 'v' + installedVersion : '—';
   $('applyUpdate').disabled = busy || !release || !directory;
   $('chooseDirectory').disabled = busy; $('packageFile').disabled = busy;
   $('directoryName').textContent = directory ? t('directorySelected', { name: directory.name }) : t('directoryNotSelected');

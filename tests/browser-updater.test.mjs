@@ -76,7 +76,7 @@ class UpdateElement {
   addEventListener(name, callback) { this.listeners[name] = callback; }
   click() { this.listeners.click?.(); }
 }
-const ids = ['updateStatus', 'applyUpdate', 'chooseDirectory', 'packageFile', 'directoryName', 'packageVersion', 'reloadUpdated', 'dropZone', 'progress', 'language'];
+const ids = ['updateStatus', 'applyUpdate', 'chooseDirectory', 'packageFile', 'directoryName', 'packageVersion', 'reloadUpdated', 'dropZone', 'progress', 'language', 'runningVersionRow', 'runningVersion'];
 const nodes = new Map(ids.map(id => [id, new UpdateElement()]));
 globalThis.document = { documentElement: {}, body: new UpdateElement(), addEventListener() {}, querySelectorAll: () => [], getElementById: id => nodes.get(id) };
 globalThis.indexedDB = new IDBFactory(); globalThis.chrome = undefined;
@@ -85,6 +85,7 @@ let permitted = false, inGesture = false, permissionCalls = 0;
 uiTarget.directory.requestPermission = async ({ mode }) => { assert.equal(mode, 'readwrite'); assert(inGesture, 'Permission must be requested in the click gesture'); permissionCalls++; return permitted ? 'granted' : 'denied'; };
 globalThis.showDirectoryPicker = async options => { assert.equal(options.mode, 'readwrite'); return uiTarget.directory; };
 await import('../extension/update.mjs');
+assert(nodes.get('runningVersionRow').hidden, 'An offline updater cannot claim to know the browser’s running extension version');
 nodes.get('language').listeners.change({ target: { value: 'en' } });
 nodes.get('packageFile').listeners.change({ target: { files: [{ name: metadata.package, size: bytes.byteLength, arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) }], value: 'test.zip' } });
 for (let index = 0; !nodes.get('packageVersion').textContent.startsWith('v') && index < 100; index++) await new Promise(resolve => setTimeout(resolve, 5));
@@ -94,8 +95,14 @@ inGesture = true; let click = nodes.get('applyUpdate').listeners.click(); inGest
 assert.equal(permissionCalls, 1); assert.match(nodes.get('updateStatus').textContent, /Allow write access/);
 for (const [path, content] of uiOriginal) assert.deepEqual(uiTarget.files.get(path), content, 'Denied permission must not write');
 permitted = true; inGesture = true; click = nodes.get('applyUpdate').listeners.click(); inGesture = false; await click;
-assert.match(nodes.get('updateStatus').textContent, /Updated to v/); assert.match(nodes.get('updateStatus').textContent, /extension manager/);
+assert.match(nodes.get('updateStatus').textContent, /Files for v/); assert.match(nodes.get('updateStatus').textContent, /extension manager/); assert.match(nodes.get('updateStatus').textContent, /activate the new version/);
 assert.equal(nodes.get('progress').value, release.entries.length); assert(nodes.get('applyUpdate').disabled && nodes.get('reloadUpdated').hidden);
 assert.equal(JSON.parse(decoder.decode(uiTarget.files.get('manifest.json'))).version, release.version);
+let reloaded = false;
+globalThis.chrome = { runtime: { id: 'test-extension', getManifest: () => ({ version: '0.9.0' }), sendMessage: async () => ({ ok: true, data: { interfaceLanguage: 'en' } }), reload: () => { reloaded = true; } } };
+await import('../extension/update.mjs?running-version'); await new Promise(resolve => setImmediate(resolve));
+assert(!nodes.get('runningVersionRow').hidden); assert.equal(nodes.get('runningVersion').textContent, 'v0.9.0');
+assert.equal(nodes.get('packageVersion').textContent, 'v' + release.version, 'The running and selected package versions must remain separate');
+nodes.get('reloadUpdated').listeners.click(); assert(reloaded);
 console.log('Browser updater: actual Release ZIP, streaming decompression, CRC/hash checks, unsafe-path rejection, identity preservation, personal-file retention, remembered target, backup, and rollback checks passed.');
 console.log('Updater UI: ZIP file selection, English status, directory selection, click-time authorization, denied-permission protection, progress, and completion flow checks passed.');

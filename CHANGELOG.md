@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.1
+
+- Collapse the popup's page-origin authorization controls by default while retaining profile selection and translation switches.
+- Restore Test translation in the shared provider section and retain Test this profile below.
+- Keep unsaved profile prompts intact during the shared-provider test; profile tests save and use the current prompt.
+- Display the browser's running manifest version in the popup, settings, and extension updater instead of a hard-coded settings header.
+- Distinguish written update files from the running version and explain that reloading activates the new version.
+
 ## 0.9.0
 
 - Share the translation provider, API key, target language, pretranslation, dialogue context, fonts, and text switches across all profiles.

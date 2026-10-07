@@ -29,6 +29,7 @@ Developer mode reads the selected unpacked directory directly. Keep that directo
 - One shared provider, API key, target language, pretranslation, dialogue context, and text switches for all profiles.
 - Named profiles with separate additional prompts, caches, and personal edits.
 - Quick profile selection for the current page in the popup; other pages keep their own bindings.
+- The popup’s page-origin controls start collapsed. The shared provider section includes a test-translation button.
 - Per-profile and per-language cache and personal edits, JSON export/import, and single-line editing.
 - Bounded Map-based LRU hot caches, joined concurrent reads, and memoized SHA-256 cache keys.
 - Additional request body JSON and configurable reasoning presets.
@@ -42,6 +43,8 @@ Click **Update extension** in the popup. Drop the new Release ZIP into the updat
 For an older version without this menu, download **cocos-web-translator-updater.html** from Releases and open it in Edge / Chrome. Drop the ZIP, select the original folder, update, and reload the existing extension in the browser extension manager. The ZIP also includes this standalone page as the outer **update.html**. No local service is required.
 
 Keep the original extension installed and select the folder it actually loads. Settings, persistently saved keys, and compatible caches are retained. Session-only keys follow browser reload rules and may need to be re-entered. Invalid packages are rejected before writing. Original code is backed up under `.cocos-update-backups/`; write failures trigger rollback. The Windows **update.cmd** remains available.
+
+The popup and settings show the version currently loaded by the browser. The updater shows that version separately from the selected package. Writing files requires an extension reload to activate the new version; close old settings tabs and reopen settings to confirm it.
 
 When upgrading to shared settings, the service, key, target language, and translation options are taken from the profile previously selected in the settings editor. Existing global pause and interface language are kept. The page identifies the migration source. Previous local profile configurations are retained in a browser-only migration backup; session-only keys are never persisted in it. Prompts, page bindings, caches, and personal edits remain independent. The default profile continues using the original database.
 

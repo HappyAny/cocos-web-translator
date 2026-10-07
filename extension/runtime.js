@@ -19,7 +19,7 @@
   let settingsTimer, uiTimer, uiController, uiBusy = false, statusMessage = '等待 Cocos 剧情模块…';
   let providerLabel = 'MyMemory', remainingBudget = null, providerSignature, preferenceRevision = 0;
   const serviceRoot = config.endpoint.replace(/\/translate\/?$/, '');
-  const api = { version: '0.9.0', stats, config, uninstall, pause, resume, setEnabled, scanUi, applyPreferences,
+  const api = { version: '0.9.1', stats, config, uninstall, pause, resume, setEnabled, scanUi, applyPreferences,
     inspect: () => ({ ...stats, status: statusMessage, provider: providerLabel, remainingBudget, historyEntries: dialogueHistory.length }) };
   const pendingExtension = new Map();
   let rpcCounter = 0;
@@ -267,7 +267,7 @@
     const timeout = global.setTimeout(() => controller.abort(), config.timeoutMs);
     serviceFetch(config.endpoint, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clientVersion: '0.9.0', items: batch.map(i => ({ id: i.id, text: i.original, kind: 'story',
+      body: JSON.stringify({ clientVersion: '0.9.1', items: batch.map(i => ({ id: i.id, text: i.original, kind: 'story',
         ...(config.historyEnabled ? { speaker: i.speaker, history: recentHistory() } : {}) })) }),
       signal: controller.signal, credentials: 'omit',
     }).then(response => {
@@ -456,7 +456,7 @@
     try {
       const response = await serviceFetch(config.endpoint, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'omit', signal: controller.signal,
-        body: JSON.stringify({ clientVersion: '0.9.0', items: pending.map(item => ({ id: item.id, text: item.binding.original, kind: 'ui' })) }),
+        body: JSON.stringify({ clientVersion: '0.9.1', items: pending.map(item => ({ id: item.id, text: item.binding.original, kind: 'ui' })) }),
       });
       if (!response.ok) throw new Error('UI translation unavailable');
       const body = await response.json();

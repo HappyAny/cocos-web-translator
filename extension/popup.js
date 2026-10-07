@@ -2,6 +2,7 @@ import { t, setLanguage, getLanguage, localizeError, applyLanguage } from './i18
 import { TARGET_LANGUAGES } from './core.mjs';
 import { sitePattern } from './site-access.mjs';
 const $ = id => document.getElementById(id);
+$('popupVersion').textContent = 'v' + chrome.runtime.getManifest().version;
 let page, preferences, profileList = [];
 async function request(action, payload) { const reply = await chrome.runtime.sendMessage({ action, payload }); if (!reply?.ok) throw new Error(reply?.error || '扩展后台无响应'); return reply.data; }
 function fill(data) {

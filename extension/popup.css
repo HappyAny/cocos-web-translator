@@ -3,3 +3,4 @@
 #origins{max-height:180px;overflow:auto}
 #pauseToggle{margin:4px 0 16px}#update{margin-top:9px}#pauseToggle[aria-pressed="true"]{background:#f5ca83}
 select{width:100%;padding:10px;background:#111d2c;color:#e4edf9;border:1px solid #41536b;border-radius:8px;font:inherit}select:disabled{opacity:.6}.scope{overflow-wrap:anywhere;font-size:12px}.site{margin-bottom:12px}body{max-height:550px;overflow-y:auto}
+.heading{display:flex;align-items:baseline;justify-content:space-between;gap:12px}.version{font-size:11px;color:#9fb8d0;white-space:nowrap}.site>summary{cursor:pointer;font-size:14px;font-weight:700}.site>summary::marker{color:#8ce0ba}.site>summary:focus-visible{outline:2px solid #8ce0ba;outline-offset:4px;border-radius:3px}

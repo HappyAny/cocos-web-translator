@@ -51,10 +51,10 @@ class Element {
   append(...children) { this.children.push(...children); }
   querySelectorAll() { return this.children.flatMap(label => label.children.filter(child => child.type === 'checkbox' && child.checked)); }
 }
-const elements = new Map(['pauseToggle', 'provider', 'origins', 'siteToggle', 'storyEnabled', 'uiEnabled', 'settings', 'status', 'update', 'profileSelect', 'profileHint', 'createProfile', 'pageScope'].map(id => [id, new Element()]));
+const elements = new Map(['pauseToggle', 'provider', 'origins', 'siteToggle', 'storyEnabled', 'uiEnabled', 'settings', 'status', 'update', 'profileSelect', 'profileHint', 'createProfile', 'pageScope', 'popupVersion'].map(id => [id, new Element()]));
 globalThis.document = { documentElement: {}, getElementById: id => elements.get(id), querySelectorAll: () => [], createElement: () => new Element() };
 let popupPrefs = { ...DEFAULTS, profileId: 'default', storyEnabled: true, uiEnabled: false, interfaceLanguage: 'en' }, opened;
-globalThis.chrome = { runtime: { getURL: path => 'chrome-extension://test-extension/' + path, openOptionsPage: async () => {}, sendMessage: async ({ action, payload }) => {
+globalThis.chrome = { runtime: { getManifest: () => ({ version: '0.9.0' }), getURL: path => 'chrome-extension://test-extension/' + path, openOptionsPage: async () => {}, sendMessage: async ({ action, payload }) => {
   if (action === 'getPageContext') return { ok: true, data: { tabId: 1, scope: 'https://canvas.example.test/view', profileId: popupPrefs.profileId, origins: [{ origin: 'https://canvas.example.test', enabled: true }] } };
   if (action === 'getProfiles') return { ok: true, data: { profiles: [{ id: 'default', name: 'Default', isDefault: true }, { id: 'second', name: 'Strategy' }], editorId: 'default' } };
   if (action === 'setPreferences') popupPrefs = { ...popupPrefs, ...payload };
@@ -63,6 +63,7 @@ globalThis.chrome = { runtime: { getURL: path => 'chrome-extension://test-extens
 } }, tabs: { create: async value => { opened = value; } } };
 await import('../extension/popup.js'); await new Promise(resolve => setImmediate(resolve));
 assert.equal(elements.get('pauseToggle').textContent, 'Pause translation');
+assert.equal(elements.get('popupVersion').textContent, 'v0.9.0');
 await elements.get('pauseToggle').listeners.click();
 assert(popupPrefs.paused && popupPrefs.storyEnabled && !popupPrefs.uiEnabled); assert.equal(elements.get('pauseToggle').textContent, 'Resume translation');
 assert.equal(elements.get('pauseToggle').attributes['aria-pressed'], 'true');

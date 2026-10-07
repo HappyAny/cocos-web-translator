@@ -54,7 +54,11 @@ function renderSummary() {
     $('budgetBar').style.width = Math.min(100, data.usedFreeCharacters / Math.max(1, data.maxFreeCharacters) * 100) + '%';
     $('connection').textContent = t(extension ? 'connectedExtension' : 'connectedLocal');
   }
-  if (extension) $('versionInfo').textContent = t('updateVersion', { version: chrome.runtime.getManifest().version });
+  if (extension) {
+    const version = chrome.runtime.getManifest().version;
+    $('settingsVersion').textContent = 'COCOS TRANSLATOR · v' + version;
+    $('versionInfo').textContent = t('updateVersion', { version });
+  }
   if (testTranslation) $('testResult').textContent = t('testText', testTranslation);
   renderMessage();
 }
@@ -95,15 +99,19 @@ $('settingsForm').addEventListener('submit', async event => { event.preventDefau
 $('profileForm').addEventListener('submit', async event => { event.preventDefault(); $('saveProfile').disabled = true;
   try { await savePrompt(); $('profileStatus').textContent = t('profileSaved'); } catch (error) { $('profileStatus').textContent = localizeError(error.message); } finally { $('saveProfile').disabled = false; }
 });
-$('test').addEventListener('click', async () => { $('test').disabled = true; $('testResult').textContent = ''; testTranslation = undefined;
+async function runTest(saveProfilePrompt = false) {
+  $('test').disabled = true; $('testProfile').disabled = true; $('testResult').textContent = ''; testTranslation = undefined;
   const scope = { profileId: editingId };
   try {
-    await save(); assertScope(scope); await savePrompt(scope); message('testing'); const result = await request('test', {}, scope), item = result.items[0]; assertScope(scope);
+    await save(); assertScope(scope); if (saveProfilePrompt) await savePrompt(scope);
+    message('testing'); const result = await request('test', {}, scope), item = result.items[0]; assertScope(scope);
     if (item.error) { message('testFailure', { code: item.error, message: localizeError(item.errorMessage || '服务请求失败'), elapsed: result.elapsedMs }, true); return; }
     testTranslation = { original: '「お父さん、大丈夫ですか？」', translation: item.text };
-    const updated = await request('getSettings', undefined, scope); assertScope(scope); fill(updated, true); await refreshCacheInfo(); message('testSuccess', { elapsed: result.elapsedMs });
-  } catch (error) { messageError(error); } finally { $('test').disabled = false; }
-});
+    const updated = await request(saveProfilePrompt ? 'getSettings' : 'getSharedSettings', undefined, scope); assertScope(scope); fill(updated, saveProfilePrompt); await refreshCacheInfo(); message('testSuccess', { elapsed: result.elapsedMs });
+  } catch (error) { messageError(error); } finally { $('test').disabled = false; $('testProfile').disabled = false; }
+}
+$('test').addEventListener('click', () => runTest());
+$('testProfile').addEventListener('click', () => runTest(true));
 $('probe').addEventListener('click', async () => { $('probe').disabled = true;
   const scope = { profileId: editingId };
   try { await save(); assertScope(scope); message('probing'); const result = await request('probe', {}, scope); assertScope(scope); message('probeResult', { message: (result.error ? '[' + result.error + '] ' : '') + localizeError(result.message), elapsed: result.elapsedMs }, !result.reachable); }
